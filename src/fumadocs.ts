@@ -152,7 +152,6 @@ export function collection<
 }
 
 type ResolvedState = ResolvedEntry & { dataPatch: Record<string, unknown> };
-
 function freezeCompiled(entry: CompiledEntry): Readonly<CompiledEntry> {
   const clone = structuredClone(entry);
   const freeze = (value: unknown): void => {

@@ -116,8 +116,6 @@ export interface LumePlugin<Frontmatter extends object = object, Data extends ob
     setup?(context: PluginContext, next: Next<Promise<void>>): void | Promise<void>;
     entry?(context: CompileEntryContext): unknown | Promise<unknown>;
     collection?(context: CompileCollectionContext, next: Next<Promise<void>>): void | Promise<void>;
-    /** @deprecated Use `collection`. */
-    finalize?(entries: CompiledEntry[], context: PluginContext): void | Promise<void>;
   };
   runtime?: RuntimeHooks;
   /** Type-only carrier; plugin implementations must not set this at runtime. */

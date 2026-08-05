@@ -11,7 +11,12 @@ import { CompileCache, compileContent, serializeCompiledContent } from '../src/c
 import { defaultMetaSchema, defaultPageSchema } from '../src/config.js';
 import { createFumadocsSource } from '../src/fumadocs.js';
 import { schedule } from '../src/schedule.js';
-import { definePlugin } from '../src/plugin.js';
+import {
+  definePlugin,
+  type CompileCollectionContext,
+  type Next,
+  type PluginContext,
+} from '../src/plugin.js';
 
 const dirs: string[] = [];
 
@@ -461,12 +466,18 @@ Body`,
       id,
       frontmatter: { schema },
       compile: {
-        setup: () => { calls.push(`setup:${id}`); },
+        async setup(_context: PluginContext, next: Next<Promise<void>>) {
+          calls.push(`setup:${id}`);
+          await next();
+        },
         entry: ({ frontmatter }: { frontmatter: Record<string, unknown> }) => {
           calls.push(`entry:${id}`);
           return { value: frontmatter.secret, mode: frontmatter.mode };
         },
-        finalize: () => { calls.push(`finalize:${id}`); },
+        async collection(_context: CompileCollectionContext, next: Next<Promise<void>>) {
+          calls.push(`collection:${id}`);
+          await next();
+        },
       },
     });
     const result = await compileContent({
@@ -475,11 +486,46 @@ Body`,
       config: { plugins: [makePlugin('one'), makePlugin('two')] },
     });
 
-    expect(calls).toEqual(['setup:one', 'setup:two', 'entry:one', 'entry:two', 'finalize:one', 'finalize:two']);
+    expect(calls).toEqual(['setup:one', 'setup:two', 'entry:one', 'entry:two', 'collection:one', 'collection:two']);
     expect(result.collections.default!.entries[0]?.data).toEqual({ title: 'Page' });
     expect(result.collections.default!.entries[0]?.ext).toEqual({
       one: { value: 'HIDDEN', mode: 'default-mode' },
       two: { value: 'HIDDEN', mode: 'default-mode' },
+    });
+  });
+
+  it('runs setup and collection middleware outside-in while keeping entry extensions isolated', async () => {
+    const cwd = await fixture({ 'content/page.md': '---\ntitle: Page\n---\nBody' });
+    const calls: string[] = [];
+    const makePlugin = (id: string) => definePlugin({
+      id,
+      compile: {
+        cacheKey: id,
+        async setup(_context: PluginContext, next: Next<Promise<void>>) {
+          calls.push(`${id}:setup:before`);
+          await next();
+          calls.push(`${id}:setup:after`);
+        },
+        entry: () => ({ owner: id }),
+        async collection(context: CompileCollectionContext, next: Next<Promise<void>>) {
+          calls.push(`${id}:collection:before:${context.entries.length}`);
+          await next();
+          calls.push(`${id}:collection:after`);
+        },
+      },
+    });
+    const result = await compileContent({
+      cwd,
+      write: false,
+      config: { plugins: [makePlugin('a'), makePlugin('b')] },
+    });
+    expect(calls).toEqual([
+      'a:setup:before', 'b:setup:before', 'b:setup:after', 'a:setup:after',
+      'a:collection:before:1', 'b:collection:before:1', 'b:collection:after', 'a:collection:after',
+    ]);
+    expect(result.collections.default!.entries[0]!.ext).toEqual({
+      a: { owner: 'a' },
+      b: { owner: 'b' },
     });
   });
 
@@ -490,7 +536,7 @@ Body`,
     });
     const cache = new CompileCache();
     const entryCalls: string[] = [];
-    let finalizeCalls = 0;
+    let collectionCalls = 0;
     const plugin = (cacheKey: string) => definePlugin({
       id: 'probe',
       compile: {
@@ -499,9 +545,10 @@ Body`,
           entryCalls.push(sourcePath);
           return { cacheKey };
         },
-        finalize(entries) {
-          finalizeCalls += 1;
+        async collection({ entries }: CompileCollectionContext, next: Next<Promise<void>>) {
+          collectionCalls += 1;
           for (const item of entries) item.data.finalized = ((item.data.finalized as number | undefined) ?? 0) + 1;
+          await next();
         },
       },
     });
@@ -543,6 +590,6 @@ Body`,
     expect(changedPlugin.collections.default!.entries.every(
       (item) => (item.ext.probe as { cacheKey: string }).cacheKey === 'v2',
     )).toBe(true);
-    expect(finalizeCalls).toBe(6);
+    expect(collectionCalls).toBe(6);
   });
 });
