@@ -50,6 +50,23 @@ Markdown and MDX use Fumadocs' public YAML frontmatter parser and `mdxPreset()`,
 
 For local editing, run `lume-cms build --watch`. The first build is clean; later builds reuse an in-memory cache keyed by source path and content plus the resolved content configuration, schema, compiler version, plugin implementation, and plugin `compile.cacheKey`. Add, change, rename, and delete events update the same deterministic output without restarting the process. Configuration and local plugin source changes are reloaded and invalidate affected cache entries. A failed rebuild reports the error, keeps the last successful output, and continues watching so the next edit can recover. Custom plugins whose behavior depends on closed-over options should expose a stable `compile.cacheKey` containing those options.
 
+Keep process orchestration in the consuming app. For example, install `concurrently` as that app's dev dependency and give content compilation and Next.js separate scripts:
+
+```json
+{
+  "scripts": {
+    "dev:content": "lume-cms build --watch",
+    "dev:web": "next dev",
+    "dev": "concurrently --kill-others --success first --names content,web \"pnpm dev:content\" \"pnpm dev:web\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.4"
+  }
+}
+```
+
+`pnpm dev` then starts both processes and forwards Ctrl-C so both the content watcher and Next.js shut down together. `concurrently` belongs to the consuming app only; it is not a `lume-cms` runtime dependency.
+
 The Fumadocs adapter exposes the compiled body as the React component expected by the official starter:
 
 ```tsx
