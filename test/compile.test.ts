@@ -273,6 +273,37 @@ Body`,
     expect(replaced.collections.default!.entries[0]).toMatchObject({ draft: true, slug: ['private', 'path'] });
   });
 
+  it('rejects Zod defaults and transforms that reintroduce private page fields', async () => {
+    const cwd = await fixture({
+      'content/page.md': '---\ntitle: Page\ndraft: false\nslug: original/path\n---\nBody',
+    });
+    const schema = defaultPageSchema.extend({
+      draft: z.boolean().default(true),
+      slug: z.string().default('seed').transform(() => 'leak'),
+    });
+
+    await expect(compileContent({ cwd, write: false, config: { content: { schema } } }))
+      .rejects.toThrow(/schema output: reserved private fields draft\/slug are forbidden/);
+  });
+
+  it('rejects arbitrary Standard Schema output that reintroduces a private page field', async () => {
+    const cwd = await fixture({
+      'content/page.md': '---\ntitle: Page\ndraft: true\nslug: original/path\n---\nBody',
+    });
+    const schema = {
+      '~standard': {
+        version: 1 as const,
+        vendor: 'private-output-test',
+        validate() {
+          return { value: { title: 'Transformed', slug: 'leak' } };
+        },
+      },
+    } satisfies StandardSchemaV1<unknown, Record<string, unknown>>;
+
+    await expect(compileContent({ cwd, write: false, config: { content: { schema } } }))
+      .rejects.toThrow(/schema output: reserved private fields draft\/slug are forbidden/);
+  });
+
   it('collects deterministic meta.json files independently from the page include glob', async () => {
     const cwd = await fixture({
       'docs/meta.json': JSON.stringify({

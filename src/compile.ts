@@ -291,6 +291,12 @@ function privateFrontmatter(value: unknown, sourcePath: string): { draft: boolea
   return { draft: data.draft === true, slug: data.slug as string | undefined };
 }
 
+function assertNoPrivatePageData(data: Record<string, unknown>, sourcePath: string) {
+  if ('draft' in data || 'slug' in data) {
+    throw new Error(`${sourcePath}: invalid frontmatter schema output: reserved private fields draft/slug are forbidden`);
+  }
+}
+
 async function compileEntry(
   raw: string,
   sourcePath: string,
@@ -302,6 +308,7 @@ async function compileEntry(
   const privateData = privateFrontmatter(parsed.data, sourcePath);
   const { draft: _draft, slug: _slug, ...publicFrontmatter } = parsed.data as Record<string, unknown>;
   const data = { ...await validate(schema, publicFrontmatter, sourcePath, 'frontmatter') };
+  assertNoPrivatePageData(data, sourcePath);
   const slug = privateData.slug !== undefined
     ? privateData.slug.split('/').filter(Boolean)
     : getSlugs(contentPath);

@@ -59,7 +59,7 @@ The default page and meta validators track `fumadocs-core/source/schema` from th
 | meta | `collapsible` | optional boolean | same | public meta data |
 | meta | `icon` | optional string | same | public meta data |
 
-The official Zod objects strip unknown keys. `draft` and `slug` are validated from raw frontmatter and removed before the public page schema runs, so they keep their reserved semantics even when the public schema is replaced. Plugin-owned input such as `publishDate` is also validated from raw frontmatter and removed from public page data.
+The official Zod objects strip unknown keys. `draft` and `slug` are validated from raw frontmatter and removed before the public page schema runs, so they keep their reserved semantics even when the public schema is replaced. Compilation fails if a schema default or transform tries to emit either reserved key, preventing a second public source of truth. Plugin-owned input such as `publishDate` is also validated from raw frontmatter and removed from public page data.
 
 For the Fumadocs-style `.extend()` workflow, install Zod and extend the exported defaults:
 
