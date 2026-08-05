@@ -1,6 +1,7 @@
 import { loadConfig } from 'c12';
 import * as v from 'valibot';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
+import type { Pluggable } from 'unified';
 
 export const defaultFrontmatterSchema = v.looseObject({
   title: v.string(),
@@ -25,6 +26,7 @@ export const defaultMetaSchema = v.looseObject({
 });
 
 export type ContentSchema = StandardSchemaV1<unknown, Record<string, unknown>>;
+export type PluginOption = Pluggable[] | ((defaults: Pluggable[]) => Pluggable[]);
 
 export interface LumeConfig {
   content?: {
@@ -35,6 +37,10 @@ export interface LumeConfig {
     schema?: ContentSchema;
     metaSchema?: ContentSchema;
   };
+  /** Extra MDX plugins, or a function that composes/reorders the official defaults. */
+  remarkPlugins?: PluginOption;
+  /** Extra MDX plugins, or a function that composes/reorders the official defaults. */
+  rehypePlugins?: PluginOption;
   output?: string;
   defaultTimezone?: string;
 }

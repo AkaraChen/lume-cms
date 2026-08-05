@@ -59,6 +59,52 @@ describe('compileContent', () => {
     expect(html).toContain('<aside>42:MDX body</aside>');
   });
 
+  it('preserves the starter GFM and Shiki MDX pipeline', async () => {
+    const cwd = await fixture({
+      'content/test.mdx': `---
+title: Content probe
+---
+| Feature | State |
+| --- | --- |
+| GFM | enabled |
+
+~~removed~~
+
+https://example.com
+
+\`\`\`js
+const answer = 42;
+\`\`\`
+`,
+    });
+    let composedRemark = false;
+    let composedRehype = false;
+    const result = await compileContent({
+      cwd,
+      write: false,
+      config: {
+        remarkPlugins(defaults) {
+          composedRemark = defaults.length >= 5;
+          return defaults;
+        },
+        rehypePlugins(defaults) {
+          composedRehype = defaults.length >= 2;
+          return defaults;
+        },
+      },
+    });
+    const Content = await getMdxComponent(result.entries[0]!.body);
+    const html = renderToStaticMarkup(createElement(Content));
+
+    expect(composedRemark).toBe(true);
+    expect(composedRehype).toBe(true);
+    expect(html).toContain('<table>');
+    expect(html).toContain('<del>removed</del>');
+    expect(html).toContain('<a href="https://example.com">https://example.com</a>');
+    expect(html).toContain('--shiki-light');
+    expect(html).toContain('class="line"');
+  });
+
   it('uses an injected Valibot schema and reports the source path on failure', async () => {
     const cwd = await fixture({ 'content/bad.md': '---\ntitle: Bad\ncategory: nope\n---\nBody' });
     await expect(compileContent({

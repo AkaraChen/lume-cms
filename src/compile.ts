@@ -3,9 +3,17 @@ import path from 'node:path';
 import { compile as compileMdxSource, type CompileOptions as MdxCompileOptions } from '@mdx-js/mdx';
 import { fromZonedTime } from 'date-fns-tz';
 import fg from 'fast-glob';
-import { remarkHeading, structure } from 'fumadocs-core/mdx-plugins';
+import {
+  rehypeCode,
+  rehypeToc,
+  remarkGfm,
+  remarkHeading,
+  remarkImage,
+  remarkNpm,
+  structure,
+} from 'fumadocs-core/mdx-plugins';
 import matter from 'gray-matter';
-import { unified } from 'unified';
+import { unified, type Pluggable } from 'unified';
 import remarkParse from 'remark-parse';
 import remarkRehype from 'remark-rehype';
 import rehypeStringify from 'rehype-stringify';
@@ -63,23 +71,39 @@ function slugify(input: string): string {
   return input.toLowerCase().trim().replace(/[^\p{L}\p{N}\s-]/gu, '').replace(/\s+/g, '-').replace(/-+/g, '-');
 }
 
-async function compileMarkdown(markdown: string) {
-  const parser = unified().use(remarkParse);
-  const tree = parser.parse(markdown);
+function composePlugins(
+  createDefaults: (extras: Pluggable[]) => Pluggable[],
+  configured: LumeConfig['remarkPlugins'],
+): Pluggable[] {
+  const defaults = createDefaults(Array.isArray(configured) ? configured : []);
+  return typeof configured === 'function' ? configured(defaults) : defaults;
+}
+
+function mdxPlugins(config: LumeConfig, toc: TocItem[]) {
+  return {
+    remarkPlugins: composePlugins((extras) => [
+      remarkGfm,
+      [remarkHeading, { generateToc: false }],
+      [remarkImage, { useImport: false }],
+      remarkNpm,
+      ...extras,
+      collectToc(toc),
+    ], config.remarkPlugins),
+    rehypePlugins: composePlugins((extras) => [
+      rehypeCode,
+      ...extras,
+      [rehypeToc, { exportToc: { as: 'data' } }],
+    ], config.rehypePlugins),
+  };
+}
+
+async function compileMarkdown(markdown: string, config: LumeConfig) {
   const toc: TocItem[] = [];
-  const counts = new Map<string, number>();
-  visit(tree, 'heading', (node: { depth: number; children?: unknown[] }) => {
-    const title = textOf(node);
-    const base = slugify(title);
-    const count = counts.get(base) ?? 0;
-    counts.set(base, count + 1);
-    toc.push({ title, url: `#${count ? `${base}-${count}` : base}`, depth: node.depth });
-  });
-  const html = String(await unified().use(remarkParse).use(remarkRehype).use(rehypeStringify).process(markdown));
+  const html = String(await unified().use(remarkParse).use(remarkGfm).use(remarkRehype).use(rehypeStringify).process(markdown));
   const code = String(await compileMdxSource(markdown, {
     outputFormat: 'function-body',
     development: false,
-    remarkPlugins: [remarkHeading],
+    ...mdxPlugins(config, toc),
   }));
   return { format: 'markdown' as const, markdown, html, code, toc, structuredData: structure(markdown) };
 }
@@ -97,12 +121,12 @@ function collectToc(toc: TocItem[]): NonNullable<MdxCompileOptions['remarkPlugin
   };
 }
 
-async function compileMdx(mdx: string) {
+async function compileMdx(mdx: string, config: LumeConfig) {
   const toc: TocItem[] = [];
   const code = String(await compileMdxSource(mdx, {
     outputFormat: 'function-body',
     development: false,
-    remarkPlugins: [remarkHeading, collectToc(toc)],
+    ...mdxPlugins(config, toc),
   }));
   return { format: 'mdx' as const, markdown: mdx, html: '', code, toc, structuredData: structure(mdx) };
 }
@@ -215,7 +239,7 @@ export async function compileContent(options: CompileOptions = {}): Promise<Comp
         ...dates,
         draft: data.draft === true,
         data,
-        body: extension === '.mdx' ? await compileMdx(candidate.markdown) : await compileMarkdown(candidate.markdown),
+        body: extension === '.mdx' ? await compileMdx(candidate.markdown, config) : await compileMarkdown(candidate.markdown, config),
       });
     }
   }
