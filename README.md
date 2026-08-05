@@ -1,3 +1,77 @@
 # lume-cms
 
-A small, runtime-aware content source for Fumadocs.
+`lume-cms` is a deliberately small content compiler and runtime source for Fumadocs. Authors write Markdown with frontmatter (or JSON), the CLI produces deterministic JSON, and one server-only source enforces scheduled visibility for pages, lists, navigation, RSS, sitemap, search, and other consumers.
+
+## Install and configure
+
+```sh
+pnpm add lume-cms fumadocs-core valibot
+```
+
+Create `lume.config.ts`:
+
+```ts
+import * as v from 'valibot';
+import { defineConfig } from 'lume-cms/config';
+
+export default defineConfig({
+  content: {
+    root: 'content',
+    include: ['content/**/*.{md,json}'],
+    schema: v.looseObject({
+      title: v.string(),
+      description: v.optional(v.string()),
+      publishDate: v.optional(v.string()),
+      draft: v.optional(v.boolean(), false),
+    }),
+  },
+  output: 'content.generated.json',
+});
+```
+
+Markdown uses YAML frontmatter. JSON may be one object or an array of objects; its optional `body` field is Markdown. Run `lume-cms build` to generate stable JSON. Entries and object keys are sorted, paths are relative, line endings are stable, and no timestamp or machine path is emitted.
+
+`publishDate` accepts ISO 8601 with an explicit offset or `Z`. A plain `YYYY-MM-DD` is rejected unless `defaultTimezone` is configured, in which case it means midnight in that IANA timezone. Invalid values fail compilation with the source path. At runtime an entry is visible exactly when `publishDate <= now`. Missing `publishDate` is immediately visible; `draft: true` is never visible.
+
+## Runtime source
+
+```ts
+import content from './content.generated.json';
+import { createFumadocsSource } from 'lume-cms/fumadocs';
+
+export const { getSource } = createFumadocsSource(content, {
+  baseUrl: '/blog',
+});
+```
+
+The generated JSON intentionally retains future entries and their bodies. `createContentSource()` applies the only visibility predicate before deriving direct slug lookup, enumeration, navigation, route params, or Fumadocs `DynamicSource.files()`. Advancing an injected clock across a deadline changes all of those reads without compiling JSON or rebuilding the app.
+
+The Fumadocs adapter uses its public `DynamicSource` and `dynamicLoader()` APIs. Its cache is deadline-aware:
+
+```text
+validUntil = min(next unpublished publishDate, now + maxStaleMs)
+```
+
+It invalidates at that boundary, so a long fallback TTL cannot hold a newly published entry past its deadline.
+
+## Next.js requirements
+
+Version 1 recommends request-time rendering with `export const dynamic = 'force-dynamic'` for page details, lists, RSS, search, metadata/OG, and `llms.txt` routes. Keep `dynamicParams = true`; otherwise a slug absent from build-time params stays unreachable after publication. Every one of these consumers must call the same `getSource()`—never import `content.generated.json` in a client component or build a separate static search index.
+
+Sitemaps are metadata routes and static by default. Set `export const revalidate = 60` in `app/sitemap.ts`, or implement it as a force-dynamic route handler. The `examples/` directory shows page, list, RSS, and sitemap wiring.
+
+ISR is supported as an explicit tradeoff: set `revalidate = N` on every consumer and accept up to `N` seconds of publication delay. A pre-publication `notFound()` may remain in Next.js's full route cache for that window. Do not wrap the source in `unstable_cache` or a permanent `fetch` cache. CDN `s-maxage` must likewise be no larger than the accepted delay. Tag invalidation driven by a scheduler is another valid option.
+
+## Preventing leaks
+
+The runtime entry points import `server-only`. Keep the JSON and any module that imports it behind the server boundary. After building an example Next.js app, scan client assets using distinctive unpublished title/body markers:
+
+```sh
+pnpm scan:client -- "UNPUBLISHED_TITLE" "UNPUBLISHED_BODY_SENTINEL"
+```
+
+Run this in CI for the consuming app. Also derive RSS, sitemap, search, navigation, metadata/OG, and text-export routes from `getSource()`; these are independent leak paths.
+
+The `/unsafe` export contains `unsafe_getAllEntriesIncludingUnpublished()` only for authenticated server-side previews. The main entry does not re-export it.
+
+Important: future bodies are plaintext in `content.generated.json` and therefore in Git history when that file is committed. This is accepted for the private v1 repository, but a public repository provides no confidentiality even if the website filters entries correctly. Do not commit sensitive future material to a public repository.

@@ -1,0 +1,55 @@
+{
+  "name": "lume-cms",
+  "version": "0.1.0",
+  "description": "Runtime-aware content source for Fumadocs",
+  "type": "module",
+  "license": "MIT",
+  "files": ["dist"],
+  "bin": {
+    "lume-cms": "./dist/cli.mjs"
+  },
+  "exports": {
+    ".": "./dist/index.mjs",
+    "./compile": "./dist/compile.mjs",
+    "./config": "./dist/config.mjs",
+    "./fumadocs": "./dist/fumadocs.mjs",
+    "./unsafe": "./dist/unsafe.mjs"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "scan:client": "node scripts/scan-client-bundle.mjs",
+    "check": "pnpm typecheck && pnpm test && pnpm build"
+  },
+  "dependencies": {
+    "c12": "^3.3.3",
+    "date-fns-tz": "^3.2.0",
+    "fast-glob": "^3.3.3",
+    "gray-matter": "^4.0.3",
+    "rehype-stringify": "^10.0.1",
+    "remark-parse": "^11.0.0",
+    "remark-rehype": "^11.1.2",
+    "server-only": "^0.0.1",
+    "unified": "^11.0.5",
+    "unist-util-visit": "^5.0.0",
+    "valibot": "^1.1.0",
+    "yaml": "^2.8.2"
+  },
+  "peerDependencies": {
+    "fumadocs-core": "^16.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "fumadocs-core": "^16.14.0",
+    "react": "^19.2.0",
+    "tsdown": "^0.22.14",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@10.28.1"
+}

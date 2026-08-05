@@ -1,0 +1,21 @@
+{
+  "name": "lume-cms-example",
+  "private": true,
+  "scripts": {
+    "build": "node ../dist/cli.mjs build && next build"
+  },
+  "dependencies": {
+    "fumadocs-core": "^16.14.0",
+    "lume-cms": "workspace:*",
+    "next": "^16.3.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "valibot": "^1.4.2"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "typescript": "^5.9.3"
+  }
+}
