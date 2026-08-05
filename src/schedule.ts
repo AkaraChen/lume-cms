@@ -31,6 +31,7 @@ export function schedule(options: ScheduleOptions = {}): SchedulePlugin {
       schema: v.object({ [field]: v.optional(v.string()) }),
     },
     compile: {
+      cacheKey: JSON.stringify({ field, sort: options.sort }),
       entry({ frontmatter, sourcePath }) {
         const value = frontmatter[field];
         if (value === undefined || value === null) return { publishDate: null, publishAtMs: null };

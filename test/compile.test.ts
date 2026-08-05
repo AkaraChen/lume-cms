@@ -6,7 +6,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it } from 'vitest';
 import * as v from 'valibot';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
-import { compileContent, serializeCompiledContent } from '../src/compile.js';
+import { CompileCache, compileContent, serializeCompiledContent } from '../src/compile.js';
 import { createFumadocsSource } from '../src/fumadocs.js';
 import { schedule } from '../src/schedule.js';
 import { definePlugin } from '../src/plugin.js';
@@ -314,5 +314,68 @@ pnpm add lume-cms
       one: { value: 'HIDDEN', mode: 'default-mode' },
       two: { value: 'HIDDEN', mode: 'default-mode' },
     });
+  });
+
+  it('incrementally compiles changed paths and keeps cached output byte-identical to a clean build', async () => {
+    const cwd = await fixture({
+      'content/a.md': '---\ntitle: A\n---\nA',
+      'content/b.md': '---\ntitle: B\n---\nB',
+    });
+    const cache = new CompileCache();
+    const entryCalls: string[] = [];
+    let finalizeCalls = 0;
+    const plugin = (cacheKey: string) => definePlugin({
+      id: 'probe',
+      compile: {
+        cacheKey,
+        entry({ sourcePath }) {
+          entryCalls.push(sourcePath);
+          return { cacheKey };
+        },
+        finalize(entries) {
+          finalizeCalls += 1;
+          for (const item of entries) item.data.finalized = ((item.data.finalized as number | undefined) ?? 0) + 1;
+        },
+      },
+    });
+    const config = { plugins: [plugin('v1')] };
+
+    const first = await compileContent({ cwd, write: false, config, cache });
+    expect(cache.stats).toEqual({ compiledEntries: 2, cachedEntries: 0 });
+    expect(entryCalls).toEqual(['content/a.md', 'content/b.md']);
+    expect(first.collections.default!.entries.map((item) => item.data.finalized)).toEqual([1, 1]);
+
+    const second = await compileContent({ cwd, write: false, config, cache });
+    expect(cache.stats).toEqual({ compiledEntries: 0, cachedEntries: 2 });
+    expect(entryCalls).toHaveLength(2);
+    expect(second.collections.default!.entries.map((item) => item.data.finalized)).toEqual([1, 1]);
+
+    await writeFile(path.join(cwd, 'content/a.md'), '---\ntitle: A2\n---\nA2');
+    const changed = await compileContent({ cwd, write: false, config, cache });
+    expect(cache.stats).toEqual({ compiledEntries: 1, cachedEntries: 1 });
+    expect(entryCalls.at(-1)).toBe('content/a.md');
+
+    await import('node:fs/promises').then(({ rename }) => rename(
+      path.join(cwd, 'content/b.md'),
+      path.join(cwd, 'content/c.md'),
+    ));
+    const renamed = await compileContent({ cwd, write: false, config, cache });
+    expect(cache.stats).toEqual({ compiledEntries: 1, cachedEntries: 1 });
+    expect(renamed.collections.default!.entries.map((item) => item.slug.join('/'))).toEqual(['a', 'c']);
+
+    const clean = await compileContent({ cwd, write: false, config, cache: new CompileCache() });
+    expect(serializeCompiledContent(renamed)).toBe(serializeCompiledContent(clean));
+
+    const changedPlugin = await compileContent({
+      cwd,
+      write: false,
+      config: { plugins: [plugin('v2')] },
+      cache,
+    });
+    expect(cache.stats).toEqual({ compiledEntries: 2, cachedEntries: 0 });
+    expect(changedPlugin.collections.default!.entries.every(
+      (item) => (item.ext.probe as { cacheKey: string }).cacheKey === 'v2',
+    )).toBe(true);
+    expect(finalizeCalls).toBe(6);
   });
 });

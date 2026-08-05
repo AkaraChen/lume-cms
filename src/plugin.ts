@@ -27,6 +27,8 @@ export interface LumePlugin<Frontmatter extends object = object, Data extends ob
     schema: StandardSchemaV1<unknown, Record<string, unknown>>;
   };
   compile?: {
+    /** Stable options/version key for invalidating incremental compilation. */
+    cacheKey?: string;
     setup?(context: PluginContext): void | Promise<void>;
     entry?(context: CompileEntryContext): unknown | Promise<unknown>;
     finalize?(entries: CompiledEntry[], context: PluginContext): void | Promise<void>;
