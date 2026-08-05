@@ -41,7 +41,8 @@
     "chokidar": "^4.0.3",
     "fast-glob": "^3.3.3",
     "server-only": "^0.0.1",
-    "valibot": "^1.1.0"
+    "valibot": "^1.1.0",
+    "zod": "^4.4.3"
   },
   "peerDependencies": {
     "fumadocs-core": "^16.0.0",
