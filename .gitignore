@@ -4,4 +4,6 @@ coverage/
 .next/
 *.generated.json
 .DS_Store
-
+.multica/
+.agent_context/
+AGENTS.md
