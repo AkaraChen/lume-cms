@@ -84,10 +84,27 @@ describe('plugin runtime', () => {
     expect(docs.data).not.toHaveProperty('publishDate');
   });
 
-  it('orders undated schedule entries without returning NaN', () => {
-    const plugin = schedule();
-    const a = { slug: ['a'], path: 'a.md', draft: false, data: {}, ext: { schedule: { publishDate: null, publishAtMs: null } }, body };
-    const b = { slug: ['b'], path: 'b.md', draft: false, data: {}, ext: { schedule: { publishDate: null, publishAtMs: null } }, body };
-    expect(plugin.runtime?.compare?.(a, b)).toBe(0);
+  it('makes schedule ordering opt-in so meta and slug order remain authoritative by default', async () => {
+    const entries = [
+      {
+        slug: ['a'], path: 'a.md', draft: false, data: { title: 'Older' },
+        ext: { schedule: { publishDate: '1970-01-01T00:00:00.010Z', publishAtMs: 10 } }, body,
+      },
+      {
+        slug: ['z'], path: 'z.md', draft: false, data: { title: 'Newer' },
+        ext: { schedule: { publishDate: '1970-01-01T00:00:00.020Z', publishAtMs: 20 } }, body,
+      },
+    ];
+    const normal = createFumadocsSource(content(['schedule'], entries), {
+      now: () => new Date(30),
+      plugins: [schedule()],
+    });
+    expect((await normal.getSource()).getPages().map((page) => page.slugs[0])).toEqual(['a', 'z']);
+
+    const blog = createFumadocsSource(content(['schedule'], entries), {
+      now: () => new Date(30),
+      plugins: [schedule({ sort: 'date-desc' })],
+    });
+    expect((await blog.getSource()).getPages().map((page) => page.slugs[0])).toEqual(['z', 'a']);
   });
 });

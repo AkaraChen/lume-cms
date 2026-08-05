@@ -11,7 +11,7 @@ import {
   type ContentSchema,
   type LumeConfig,
 } from './config.js';
-import type { CompiledBody, CompiledCollection, CompiledContent, CompiledEntry } from './types.js';
+import type { CompiledBody, CompiledCollection, CompiledContent, CompiledEntry, CompiledMeta } from './types.js';
 import { assertPluginIds } from './plugin.js';
 
 export interface CompileOptions {
@@ -91,19 +91,27 @@ function normalizedCollections(config: LumeConfig) {
 
 async function collectionFiles(
   cwd: string,
-  collections: Record<string, { include?: string[]; exclude?: string[] }>,
+  collections: Record<string, { include?: string[]; exclude?: string[]; root?: string }>,
 ) {
-  const result = new Map<string, string[]>();
+  const result = new Map<string, { pages: string[]; metas: string[] }>();
   const owners = new Map<string, string>();
   for (const name of Object.keys(collections).sort()) {
     const item = collections[name]!;
-    const files = await fg(item.include ?? ['content/**/*.{md,mdx,markdown}'], {
+    const globOptions = {
       cwd,
       ignore: item.exclude,
-      onlyFiles: true,
-      unique: true,
-    });
-    for (const sourcePath of files) {
+      onlyFiles: true as const,
+      unique: true as const,
+    };
+    const rootPattern = path.relative(cwd, path.resolve(cwd, item.root ?? 'content')).replace(/\\/g, '/');
+    const [pageFiles, metaFiles] = await Promise.all([
+      fg(item.include ?? ['content/**/*.{md,mdx,markdown}'], globOptions),
+      fg(path.posix.join(rootPattern, '**/meta.json'), globOptions),
+    ]);
+    const metas = metaFiles.sort();
+    const metaSet = new Set(metas);
+    const pages = pageFiles.filter((sourcePath) => !metaSet.has(sourcePath)).sort();
+    for (const sourcePath of [...pages, ...metas]) {
       const absolutePath = path.resolve(cwd, sourcePath);
       const owner = owners.get(absolutePath);
       if (owner) {
@@ -111,9 +119,27 @@ async function collectionFiles(
       }
       owners.set(absolutePath, name);
     }
-    result.set(name, files.sort());
+    result.set(name, { pages, metas });
   }
   return result;
+}
+
+function relativeContentPath(contentRoot: string, absolutePath: string): string {
+  return path.relative(contentRoot, absolutePath).replace(/\\/g, '/');
+}
+
+function parseMeta(raw: string, sourcePath: string): CompiledMeta['data'] {
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch (error) {
+    const detail = error instanceof Error ? `: ${error.message}` : '';
+    throw new Error(`${sourcePath}: invalid meta.json${detail}`);
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`${sourcePath}: invalid meta.json: expected a JSON object`);
+  }
+  return value as CompiledMeta['data'];
 }
 
 export async function compileContent(options: CompileOptions = {}): Promise<CompiledContent> {
@@ -123,7 +149,6 @@ export async function compileContent(options: CompileOptions = {}): Promise<Comp
   const files = await collectionFiles(cwd, configured);
   const collections: Record<string, CompiledCollection> = {};
   const pluginContext = { cwd, config };
-
   for (const name of Object.keys(configured).sort()) {
     const definition = configured[name]!;
     const contentRoot = path.resolve(cwd, definition.root ?? 'content');
@@ -132,8 +157,17 @@ export async function compileContent(options: CompileOptions = {}): Promise<Comp
     assertPluginIds(plugins);
     for (const plugin of plugins) await plugin.compile?.setup?.(pluginContext);
     const entries: CompiledEntry[] = [];
+    const metas: CompiledMeta[] = [];
 
-    for (const sourcePath of files.get(name)!) {
+    for (const sourcePath of files.get(name)!.metas) {
+      const absolutePath = path.resolve(cwd, sourcePath);
+      metas.push({
+        path: relativeContentPath(contentRoot, absolutePath),
+        data: parseMeta(await readFile(absolutePath, 'utf8'), sourcePath),
+      });
+    }
+
+    for (const sourcePath of files.get(name)!.pages) {
       const absolutePath = path.resolve(cwd, sourcePath);
       const contentPath = path.relative(contentRoot, absolutePath).replace(/\\/g, '/');
       const raw = await readFile(absolutePath, 'utf8');
@@ -170,7 +204,7 @@ export async function compileContent(options: CompileOptions = {}): Promise<Comp
     entries.sort((a, b) => a.slug.join('/').localeCompare(b.slug.join('/')));
     assertUniqueSlugs(entries);
     for (const plugin of plugins) await plugin.compile?.finalize?.(entries, pluginContext);
-    collections[name] = { plugins: plugins.map((plugin) => plugin.id), entries };
+    collections[name] = { plugins: plugins.map((plugin) => plugin.id), entries, metas };
   }
 
   const content: CompiledContent = { schemaVersion: 3, collections };

@@ -209,6 +209,49 @@ pnpm add lume-cms
     expect(source.getPageTree()).toBeDefined();
   });
 
+  it('collects deterministic meta.json files independently from the page include glob', async () => {
+    const cwd = await fixture({
+      'docs/meta.json': JSON.stringify({
+        pagesIndex: 'intro',
+        pages: ['intro', '---More---', '...'],
+        defaultOpen: true,
+        root: true,
+        icon: 'Book',
+        description: 'Guide pages',
+        title: 'Guide',
+      }),
+      'docs/intro.mdx': '---\ntitle: Intro\n---\nIntro',
+      'docs/nested/meta.json': '{"title":"Nested"}',
+      'docs/nested/page.mdx': '---\ntitle: Nested page\n---\nNested',
+    });
+    const config = { content: { root: 'docs', include: ['docs/**/*'] } };
+    const one = await compileContent({ cwd, write: false, config });
+    const two = await compileContent({ cwd, write: false, config });
+
+    expect(one.collections.default!.metas).toEqual([
+      {
+        path: 'meta.json',
+        data: {
+          pagesIndex: 'intro',
+          pages: ['intro', '---More---', '...'],
+          defaultOpen: true,
+          root: true,
+          icon: 'Book',
+          description: 'Guide pages',
+          title: 'Guide',
+        },
+      },
+      { path: 'nested/meta.json', data: { title: 'Nested' } },
+    ]);
+    expect(serializeCompiledContent(one)).toBe(serializeCompiledContent(two));
+  });
+
+  it('reports malformed meta.json with its source path', async () => {
+    const cwd = await fixture({ 'content/meta.json': '{ nope' });
+    await expect(compileContent({ cwd, write: false }))
+      .rejects.toThrow(/content\/meta\.json: invalid meta\.json/);
+  });
+
   it('rejects invalid or offset-less dates', async () => {
     const cwd = await fixture({ 'content/date.md': '---\ntitle: Date\npublishDate: 2026-09-01\n---\nBody' });
     await expect(compileContent({ cwd, write: false, config: { plugins: [schedule()] } }))

@@ -17,7 +17,13 @@ type SchedulePlugin = LumePlugin<
   { publishDate: string | null }
 >;
 
-export function schedule(options: { field?: string } = {}): SchedulePlugin {
+export interface ScheduleOptions {
+  field?: string;
+  /** Sort pages newest-first by publish date. Disabled by default so `meta.json` owns docs ordering. */
+  sort?: 'date-desc';
+}
+
+export function schedule(options: ScheduleOptions = {}): SchedulePlugin {
   const field = options.field ?? 'publishDate';
   return definePlugin({
     id: 'schedule',
@@ -43,14 +49,9 @@ export function schedule(options: { field?: string } = {}): SchedulePlugin {
         .map((entry) => extension(entry).publishAtMs)
         .filter((value): value is number => value !== null && value > nowMs)
         .reduce((next, value) => Math.min(next, value), Infinity),
-      compare: (a, b) => {
-        const left = extension(a).publishAtMs;
-        const right = extension(b).publishAtMs;
-        if (left === null && right === null) return 0;
-        if (left === null) return 1;
-        if (right === null) return -1;
-        return right - left;
-      },
+      ...(options.sort === 'date-desc' && {
+        compare: (a, b) => (extension(b).publishAtMs ?? -Infinity) - (extension(a).publishAtMs ?? -Infinity),
+      }),
       pageData: (entry) => ({ publishDate: extension(entry).publishDate }),
     },
   });

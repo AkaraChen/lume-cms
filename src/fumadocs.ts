@@ -103,16 +103,22 @@ function createCollectionSource<
   };
 
   function filesAt(at: number): ReturnType<DynamicSource<SourceConfig>['files']> {
-    return compiled.entries
-      .filter((entry) => isVisible(entry, plugins, at))
-      .sort((a, b) => {
-        for (const plugin of plugins) {
-          const result = plugin.runtime?.compare?.(a, b) ?? 0;
-          if (result !== 0) return result;
-        }
-        return a.slug.join('/').localeCompare(b.slug.join('/'));
-      })
-      .map((entry) => ({
+    return [
+      ...(compiled.metas ?? []).map((meta) => ({
+        type: 'meta' as const,
+        path: meta.path,
+        data: meta.data,
+      })),
+      ...compiled.entries
+        .filter((entry) => isVisible(entry, plugins, at))
+        .sort((a, b) => {
+          for (const plugin of plugins) {
+            const result = plugin.runtime?.compare?.(a, b) ?? 0;
+            if (result !== 0) return result;
+          }
+          return a.slug.join('/').localeCompare(b.slug.join('/'));
+        })
+        .map((entry) => ({
         type: 'page' as const,
         path: entry.path,
         slugs: entry.slug,
@@ -125,7 +131,8 @@ function createCollectionSource<
           structuredData: entry.body.structuredData,
           ...Object.assign({}, ...plugins.map((plugin) => plugin.runtime?.pageData?.(entry) ?? {})),
         } as LumePageData<Data & InferPluginData<Plugins>>,
-      }));
+        })),
+    ];
   }
 
   function deadlineAt(at: number) {

@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { describe, expect, it } from 'vitest';
+import type { Folder, Item, Node } from 'fumadocs-core/page-tree';
 import { collection, createFumadocsSource, createFumadocsSources } from '../src/fumadocs.js';
 import type { CompiledContent } from '../src/types.js';
 import { schedule } from '../src/schedule.js';
@@ -187,5 +188,83 @@ describe('createFumadocsSource', () => {
     now = 20;
     await Promise.all(Array.from({ length: 20 }, () => source.getSource()));
     expect(entryReads).toBe(4);
+  });
+
+  it('preserves the complete Fumadocs meta page-tree contract across a deadline', async () => {
+    let now = 19;
+    const pages = [
+      entry('root-page', null),
+      { ...entry('intro', null), slug: ['guide', 'intro'], path: 'guide/intro.mdx' },
+      { ...entry('advanced-a', null), slug: ['guide', 'advanced', 'a'], path: 'guide/advanced/a.mdx' },
+      { ...entry('advanced-b', null), slug: ['guide', 'advanced', 'b'], path: 'guide/advanced/b.mdx' },
+      { ...entry('hidden', null), slug: ['guide', 'hidden'], path: 'guide/hidden.mdx' },
+      { ...entry('tail', 20), slug: ['guide', 'tail'], path: 'guide/tail.mdx' },
+    ];
+    const sourceFactory = createFumadocsSource({
+      schemaVersion: 3,
+      collections: { default: { plugins: ['schedule'], entries: pages, metas: [
+        {
+          path: 'meta.json',
+          data: { title: 'Docs', description: 'Root docs', pages: ['guide', 'root-page'] },
+        },
+        {
+          path: 'guide/meta.json',
+          data: {
+            title: 'Guide',
+            description: 'Guide pages',
+            icon: 'Book',
+            root: true,
+            defaultOpen: true,
+            pagesIndex: 'intro',
+            pages: [
+              '---Basics---',
+              '...advanced',
+              '!hidden',
+              '[External](https://example.com)',
+              '[Rocket][Icon Link](https://icons.example.com)',
+              '...',
+            ],
+          },
+        },
+        { path: 'guide/advanced/meta.json', data: { pages: ['b', 'a'] } },
+      ] } },
+    }, { now: () => new Date(now), plugins: [schedule()] });
+
+    const before = await sourceFactory.getSource();
+    const tree = before.getPageTree();
+    expect(tree).toMatchObject({ name: 'Docs', description: 'Root docs' });
+    const guide = tree.children[0] as Folder;
+    expect(guide).toMatchObject({
+      type: 'folder',
+      name: 'Guide',
+      description: 'Guide pages',
+      icon: 'Book',
+      root: true,
+      defaultOpen: true,
+      index: { type: 'page', name: 'intro', url: '/guide/intro' },
+    });
+    expect(guide.children.map((node: Node) => ({
+      type: node.type,
+      name: node.name,
+      url: node.type === 'page' ? node.url : undefined,
+      icon: 'icon' in node ? node.icon : undefined,
+    }))).toEqual([
+      { type: 'separator', name: 'Basics', url: undefined, icon: undefined },
+      { type: 'page', name: 'advanced-b', url: '/guide/advanced/b', icon: undefined },
+      { type: 'page', name: 'advanced-a', url: '/guide/advanced/a', icon: undefined },
+      { type: 'page', name: 'External', url: 'https://example.com', icon: undefined },
+      { type: 'page', name: 'Icon Link', url: 'https://icons.example.com', icon: 'Rocket' },
+    ]);
+    expect(before.getNodeMeta(tree)).toMatchObject({ path: 'meta.json', data: { title: 'Docs' } });
+    expect(before.getNodeMeta(guide)).toMatchObject({
+      path: 'guide/meta.json',
+      data: { title: 'Guide', pagesIndex: 'intro', root: true },
+    });
+    expect(guide.children.some((node: Node) => node.type === 'page' && node.name === 'hidden')).toBe(false);
+
+    now = 20;
+    const after = await sourceFactory.getSource();
+    const refreshedGuide = after.getPageTree().children[0] as Folder;
+    expect((refreshedGuide.children.at(-1) as Item).url).toBe('/guide/tail');
   });
 });
