@@ -1,74 +1,122 @@
 import 'server-only';
 
+import { run } from '@mdx-js/mdx';
 import { dynamicLoader } from 'fumadocs-core/source/dynamic';
-import type { LoaderPluginOption } from 'fumadocs-core/source';
-import { createContentSource, type ContentSourceOptions } from './source.js';
-import { evaluateCompiledBody } from './mdx-runtime.js';
-import type { CompiledBody, CompiledContent } from './types.js';
+import type { DynamicSource, LoaderPluginOption, MetaData } from 'fumadocs-core/source';
+import { createElement, type ComponentType } from 'react';
+import * as runtime from 'react/jsx-runtime';
+import type { CompiledBody, CompiledContent, CompiledEntry } from './types.js';
 
-export interface FumadocsSourceOptions extends ContentSourceOptions {
+type BodyComponent = ComponentType<{ components?: Record<string, unknown> }>;
+
+export type { CompiledContent } from './types.js';
+
+interface FumadocsSourceOptions {
   baseUrl?: string;
-  maxStaleMs?: number;
+  now?: () => Date;
   plugins?: LoaderPluginOption[];
 }
 
-/** Evaluate trusted, build-produced MDX on the server and return its React component. */
-export async function getMdxComponent(body: CompiledBody) {
-  return evaluateCompiledBody(body);
+type LumePageData<Data extends Record<string, unknown> = Record<string, unknown>> = Data & {
+  title: string;
+  body: BodyComponent;
+  content: string;
+  toc: CompiledBody['toc'];
+  structuredData: CompiledBody['structuredData'];
+  publishDate: string | null;
+};
+
+/** The single visibility boundary. Every Fumadocs read path derives from its files. */
+function isVisible(entry: CompiledEntry, nowMs: number): boolean {
+  return !entry.draft && (entry.publishAtMs === null || entry.publishAtMs <= nowMs);
+}
+
+function bodyComponent(body: CompiledBody): BodyComponent {
+  let evaluated: Promise<BodyComponent> | undefined;
+  return async function CompiledBodyContent(props) {
+    evaluated ??= run(body.code, { ...runtime, baseUrl: import.meta.url }).then(
+      (module) => module.default as BodyComponent,
+    );
+    return createElement(await evaluated, props);
+  };
 }
 
 export function createFumadocsSource<Data extends Record<string, unknown>>(
   content: CompiledContent<Data>,
   options: FumadocsSourceOptions = {},
 ) {
-  const now = options.now ?? (() => new Date());
-  const maxStaleMs = options.maxStaleMs ?? 60_000;
-  if (!Number.isFinite(maxStaleMs) || maxStaleMs <= 0) {
-    throw new TypeError('maxStaleMs must be a positive finite number');
+  if (content.schemaVersion !== 1 || !Array.isArray(content.entries)) {
+    throw new TypeError('Unsupported lume-cms compiled content schema');
   }
 
-  const contentSource = createContentSource(content, { now });
-  const loader = dynamicLoader(contentSource.toDynamicSource(), {
+  const now = options.now ?? (() => new Date());
+  function currentTime() {
+    const value = now().getTime();
+    if (!Number.isFinite(value)) throw new TypeError('The injected clock returned an invalid Date');
+    return value;
+  }
+
+  const source: DynamicSource<{ pageData: LumePageData<Data>; metaData: MetaData }> = {
+    files: () => {
+      const at = currentTime();
+      return [
+        ...content.entries
+          .filter((entry) => isVisible(entry, at))
+          .sort((a, b) => (b.publishAtMs ?? -Infinity) - (a.publishAtMs ?? -Infinity)
+            || a.slug.join('/').localeCompare(b.slug.join('/')))
+          .map((entry) => ({
+            type: 'page' as const,
+            path: entry.path,
+            slugs: entry.slug,
+            data: {
+              ...entry.data,
+              title: typeof entry.data.title === 'string' ? entry.data.title : entry.slug.join('/') || 'index',
+              body: bodyComponent(entry.body),
+              content: entry.body.markdown,
+              toc: entry.body.toc,
+              structuredData: entry.body.structuredData,
+              publishDate: entry.publishDate,
+            } as LumePageData<Data>,
+          })),
+        ...(content.metas ?? []).map((meta) => ({
+          type: 'meta' as const,
+          path: meta.path,
+          data: meta.data,
+        })),
+      ];
+    },
+  };
+  const loader = dynamicLoader(source, {
     baseUrl: options.baseUrl ?? '/',
     plugins: options.plugins,
   });
   let validUntil = -Infinity;
-  let revision = 0;
   let refreshPromise: ReturnType<typeof loader.get> | undefined;
 
   async function getSource() {
     while (true) {
-      const nowMs = now().getTime();
+      const nowMs = currentTime();
       if (nowMs < validUntil) return loader.get();
 
-      const active = refreshPromise ??= refresh(revision);
+      const active = refreshPromise ??= refresh();
       try {
         const source = await active;
-        if (now().getTime() < validUntil) return source;
+        if (currentTime() < validUntil) return source;
       } finally {
         if (refreshPromise === active) refreshPromise = undefined;
       }
     }
   }
 
-  async function refresh(startRevision: number) {
+  async function refresh() {
     loader.invalidate();
     const source = await loader.get();
-    if (revision === startRevision) {
-      const refreshedAt = now().getTime();
-      const transition = contentSource.nextTransitionAt() ?? Infinity;
-      validUntil = Math.min(transition, refreshedAt + maxStaleMs);
-    }
+    const refreshedAt = currentTime();
+    validUntil = content.entries
+      .filter((entry) => !entry.draft && entry.publishAtMs !== null && entry.publishAtMs > refreshedAt)
+      .reduce((next, entry) => Math.min(next, entry.publishAtMs as number), Infinity);
     return source;
   }
 
-  return {
-    getSource,
-    contentSource,
-    invalidate() {
-      revision += 1;
-      validUntil = -Infinity;
-      loader.invalidate();
-    },
-  };
+  return { getSource };
 }

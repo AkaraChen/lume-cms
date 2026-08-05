@@ -1,6 +1,5 @@
 import content from '../content.generated.json';
-import { createFumadocsSource } from 'lume-cms/fumadocs';
-import type { CompiledContent } from 'lume-cms';
+import { createFumadocsSource, type CompiledContent } from 'lume-cms';
 import { lucideIconsPlugin } from 'fumadocs-core/source/lucide-icons';
 import { docsContentRoute, docsImageRoute, docsRoute } from './shared';
 

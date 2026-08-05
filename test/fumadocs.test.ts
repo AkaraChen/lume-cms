@@ -4,14 +4,13 @@ import type { CompiledContent } from '../src/types.js';
 
 function entry(id: string, publishAtMs: number | null, draft = false) {
   return {
-    id,
     slug: [id],
-    sourcePath: `content/${id}.md`,
+    path: `${id}.md`,
     publishDate: publishAtMs === null ? null : new Date(publishAtMs).toISOString(),
     publishAtMs,
     draft,
     data: { title: id },
-    body: { format: 'markdown' as const, markdown: id, html: `<p>${id}</p>`, toc: [] },
+    body: { markdown: id, code: '', toc: [], structuredData: { headings: [], contents: [] } },
   };
 }
 
@@ -32,22 +31,21 @@ function starterConsumerSets(source: Awaited<ReturnType<ReturnType<typeof create
 }
 
 describe('createFumadocsSource', () => {
-  it('invalidates at the publication deadline even with a long maxStaleMs', async () => {
+  it('invalidates exactly at the publication deadline', async () => {
     let now = 999;
     const content: CompiledContent = {
       schemaVersion: 1,
       entries: [{
-        id: 'scheduled',
         slug: ['scheduled'],
-        sourcePath: 'content/scheduled.md',
+        path: 'scheduled.md',
         publishDate: '1970-01-01T00:00:01Z',
         publishAtMs: 1_000,
         draft: false,
         data: { title: 'Scheduled' },
-        body: { format: 'markdown', markdown: 'secret', html: '<p>secret</p>', toc: [] },
+        body: { markdown: 'secret', code: '', toc: [], structuredData: { headings: [], contents: [] } },
       }],
     };
-    const source = createFumadocsSource(content, { now: () => new Date(now), maxStaleMs: 86_400_000 });
+    const source = createFumadocsSource(content, { now: () => new Date(now) });
     expect((await source.getSource()).getPages()).toHaveLength(0);
     now = 1_000;
     expect((await source.getSource()).getPage(['scheduled'])?.data.title).toBe('Scheduled');
@@ -58,7 +56,7 @@ describe('createFumadocsSource', () => {
     const source = createFumadocsSource({
       schemaVersion: 1,
       entries: [entry('published', 10), entry('scheduled', 20), entry('draft', null, true)],
-    }, { now: () => new Date(now), maxStaleMs: 86_400_000 });
+    }, { now: () => new Date(now) });
 
     const before = await source.getSource();
     expect(Object.values(starterConsumerSets(before))).toEqual(Array(7).fill(['published']));
@@ -80,7 +78,7 @@ describe('createFumadocsSource', () => {
         return entries;
       },
     };
-    const source = createFumadocsSource(content, { now: () => new Date(now), maxStaleMs: 86_400_000 });
+    const source = createFumadocsSource(content, { now: () => new Date(now) });
     entryReads = 0;
 
     await Promise.all(Array.from({ length: 20 }, () => source.getSource()));
