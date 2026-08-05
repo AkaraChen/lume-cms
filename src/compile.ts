@@ -42,6 +42,7 @@ import {
 export interface CompileOptions {
   cwd?: string;
   config?: LumeConfig;
+  resolvedCollections?: readonly ResolvedCollection[];
   cache?: CompileCache;
   strict?: boolean;
   write?: boolean;
@@ -273,47 +274,75 @@ function normalizedCollections(config: LumeConfig) {
   return collections;
 }
 
+export interface ResolvedCollection {
+  name: string;
+  root: string;
+  include: string[];
+  exclude: string[];
+  baseUrl: string;
+  i18n?: CompiledI18nConfig;
+  schema: ContentSchema;
+  metaSchema: ContentSchema;
+  plugins: readonly AnyLumePlugin[];
+}
+
+export function resolveCollections(cwd: string, config: LumeConfig): ResolvedCollection[] {
+  const configured = normalizedCollections(config);
+  return Object.keys(configured).sort().map((name) => {
+    const definition = configured[name]!;
+    const plugins = definition.plugins ?? config.plugins ?? [];
+    assertPluginIds(plugins);
+    return {
+      name,
+      root: path.resolve(cwd, definition.root ?? 'content'),
+      include: definition.include ?? ['**/*.{md,mdx,markdown}'],
+      exclude: definition.exclude ?? [],
+      baseUrl: normalizeBaseUrl(definition.baseUrl),
+      i18n: definition.i18n ? normalizeI18n(definition.i18n) : undefined,
+      schema: definition.schema ?? defaultPageSchema,
+      metaSchema: definition.metaSchema ?? defaultMetaSchema,
+      plugins,
+    };
+  });
+}
+
 async function collectionFiles(
   cwd: string,
-  collections: Record<string, {
-    include?: string[];
-    exclude?: string[];
-    root?: string;
-    i18n?: Parameters<typeof normalizeI18n>[0];
-  }>,
+  collections: readonly ResolvedCollection[],
 ) {
   const result = new Map<string, { pages: string[]; metas: string[] }>();
   const owners = new Map<string, string>();
-  for (const name of Object.keys(collections).sort()) {
-    const item = collections[name]!;
+  for (const item of collections) {
     const globOptions = {
-      cwd,
+      cwd: item.root,
       ignore: item.exclude,
       onlyFiles: true as const,
       unique: true as const,
     };
-    const rootPattern = PathUtils.slash(path.relative(cwd, path.resolve(cwd, item.root ?? 'content')));
-    const i18n = item.i18n ? normalizeI18n(item.i18n) : undefined;
-    const metaGlob = i18n && i18n.parser !== 'dir' ? 'meta{,.*}.json' : 'meta.json';
-    const [pageFiles, discoveredMetaFiles] = await Promise.all([
-      fg(item.include ?? ['content/**/*.{md,mdx,markdown}'], globOptions),
-      fg(path.posix.join(rootPattern, `**/${metaGlob}`), globOptions),
+    const metaGlob = item.i18n && item.i18n.parser !== 'dir' ? 'meta{,.*}.json' : 'meta.json';
+    const [relativePageFiles, discoveredMetaFiles] = await Promise.all([
+      fg(item.include, globOptions),
+      fg(`**/${metaGlob}`, globOptions),
     ]);
-    const metas = discoveredMetaFiles.filter((sourcePath) => {
-      const contentPath = relativeContentPath(path.resolve(cwd, item.root ?? 'content'), path.resolve(cwd, sourcePath));
-      return path.posix.basename(parseI18nPath(contentPath, i18n).path) === 'meta.json';
-    }).sort();
-    const metaSet = new Set(metas);
-    const pages = pageFiles.filter((sourcePath) => !metaSet.has(sourcePath)).sort();
+    const relativeMetas = discoveredMetaFiles.filter((contentPath) => (
+      path.posix.basename(parseI18nPath(contentPath, item.i18n).path) === 'meta.json'
+    )).sort();
+    const metaSet = new Set(relativeMetas);
+    const relativePages = relativePageFiles.filter((sourcePath) => !metaSet.has(sourcePath)).sort();
+    const toSourcePath = (contentPath: string) => (
+      PathUtils.slash(path.relative(cwd, path.resolve(item.root, contentPath)))
+    );
+    const pages = relativePages.map(toSourcePath);
+    const metas = relativeMetas.map(toSourcePath);
     for (const sourcePath of [...pages, ...metas]) {
       const absolutePath = path.resolve(cwd, sourcePath);
       const owner = owners.get(absolutePath);
       if (owner) {
-        throw new Error(`Content file ${sourcePath} is included by both collections ${JSON.stringify(owner)} and ${JSON.stringify(name)}`);
+        throw new Error(`Content file ${sourcePath} is included by both collections ${JSON.stringify(owner)} and ${JSON.stringify(item.name)}`);
       }
-      owners.set(absolutePath, name);
+      owners.set(absolutePath, item.name);
     }
-    result.set(name, { pages, metas });
+    result.set(item.name, { pages, metas });
   }
   return result;
 }
@@ -432,11 +461,11 @@ async function compileEntry(
 export async function compileContent(options: CompileOptions = {}): Promise<CompiledContent> {
   const cwd = path.resolve(options.cwd ?? process.cwd());
   const config = options.config ?? (await loadLumeConfig(cwd));
-  const configured = normalizedCollections(config);
-  const files = await collectionFiles(cwd, configured);
+  const resolvedCollections = options.resolvedCollections ?? resolveCollections(cwd, config);
+  const files = await collectionFiles(cwd, resolvedCollections);
   const collections: Record<string, CompiledCollection> = {};
   const fingerprint = digest('lume-cms-compile-cache-v2', JSON.stringify(stableValue({
-    collections: configured,
+    collections: normalizedCollections(config),
     plugins: config.plugins,
   }, 'fingerprint')));
   const cache = options.cache;
@@ -448,15 +477,8 @@ export async function compileContent(options: CompileOptions = {}): Promise<Comp
   let cachedEntries = 0;
   let compiledEntries = 0;
 
-  for (const name of Object.keys(configured).sort()) {
-    const definition = configured[name]!;
-    const baseUrl = normalizeBaseUrl(definition.baseUrl);
-    const i18n = definition.i18n ? normalizeI18n(definition.i18n) : undefined;
-    const contentRoot = path.resolve(cwd, definition.root ?? 'content');
-    const schema = definition.schema ?? defaultPageSchema;
-    const metaSchema = definition.metaSchema ?? defaultMetaSchema;
-    const plugins = definition.plugins ?? config.plugins ?? [];
-    assertPluginIds(plugins);
+  for (const definition of resolvedCollections) {
+    const { name, root: contentRoot, baseUrl, i18n, schema, metaSchema, plugins } = definition;
     const setup = collectCompileHooks<PluginContext>(plugins, (plugin) => plugin.compile?.setup);
     await composeOnion(setup, async () => {})(pluginContext);
     const entries: CompiledEntry[] = [];

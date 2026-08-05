@@ -19,7 +19,7 @@ async function fixture() {
 };
 `);
   await writeFile(path.join(cwd, 'lume.config.ts'), `import plugin from './plugin';
-export default { collections: { default: { include: ['content/**/*.md'] } }, plugins: [plugin] };
+export default { collections: { default: { include: ['**/*.md'] } }, plugins: [plugin] };
 `);
   return cwd;
 }
@@ -105,7 +105,7 @@ describe('watchContent', () => {
 
     previousBuilds = builds.length;
     await writeFile(path.join(cwd, 'lume.config.ts'), `import plugin from './plugin';
-export default { collections: { default: { include: ['content/a.md'] } }, plugins: [plugin] };
+export default { collections: { default: { include: ['a.md'] } }, plugins: [plugin] };
 `);
     const changedConfig = await nextBuild(previousBuilds, (result) => (
       result.content.collections.default?.entries.length === 1
@@ -121,16 +121,20 @@ export default { collections: { default: { include: ['content/a.md'] } }, plugin
     expect(builds).toHaveLength(completedBuilds);
   });
 
-  it('rebuilds when a collection root outside cwd changes', async () => {
+  it('diffs external roots and output ignores when config changes', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'lume-cms-watch-external-'));
     dirs.push(root);
     const cwd = path.join(root, 'site');
-    const shared = path.join(root, 'shared');
+    const sharedA = path.join(root, 'shared-a');
+    const sharedB = path.join(root, 'shared-b');
     await mkdir(cwd, { recursive: true });
-    await mkdir(shared, { recursive: true });
-    await writeFile(path.join(shared, 'page.md'), '---\ntitle: Before\n---\nBefore');
+    await mkdir(sharedA, { recursive: true });
+    await mkdir(sharedB, { recursive: true });
+    await writeFile(path.join(sharedA, 'page.md'), '---\ntitle: A\n---\nA');
+    await writeFile(path.join(sharedB, 'page.md'), '---\ntitle: B\n---\nB');
     await writeFile(path.join(cwd, 'lume.config.ts'), `export default {
-  collections: { default: { root: '../shared', include: ['../shared/**/*.md'] } },
+  collections: { default: { root: '../shared-a', include: ['**/*.md'] } },
+  output: 'old-output.json',
 };
 `);
 
@@ -140,15 +144,36 @@ export default { collections: { default: { include: ['content/a.md'] } }, plugin
       debounceMs: 10,
       onBuild: (result) => { builds.push(result); },
     });
-    expect(builds.at(-1)?.content.collections.default?.entries[0]?.data.title).toBe('Before');
+    expect(builds.at(-1)?.content.collections.default?.entries[0]?.data.title).toBe('A');
 
-    const previousBuilds = builds.length;
-    await writeFile(path.join(shared, 'page.md'), '---\ntitle: After\n---\nAfter');
+    let previousBuilds = builds.length;
+    await writeFile(path.join(cwd, 'lume.config.ts'), `export default {
+  collections: { default: { root: '../shared-b', include: ['**/*.md'] } },
+  output: 'new-output.json',
+};
+`);
     await vi.waitFor(() => {
       expect(builds.slice(previousBuilds).some((result) => (
-        result.content.collections.default?.entries[0]?.data.title === 'After'
+        result.content.collections.default?.entries[0]?.data.title === 'B'
       ))).toBe(true);
     });
+
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    previousBuilds = builds.length;
+    await writeFile(path.join(sharedA, 'page.md'), '---\ntitle: Stale\n---\nStale');
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(builds).toHaveLength(previousBuilds);
+
+    await writeFile(path.join(sharedB, 'page.md'), '---\ntitle: Current\n---\nCurrent');
+    await vi.waitFor(() => {
+      expect(builds.slice(previousBuilds).some((result) => (
+        result.content.collections.default?.entries[0]?.data.title === 'Current'
+      ))).toBe(true);
+    });
+
+    previousBuilds = builds.length;
+    await writeFile(path.join(cwd, 'old-output.json'), '{}');
+    await vi.waitFor(() => expect(builds.length).toBeGreaterThan(previousBuilds));
     await watcher.close();
   });
 });

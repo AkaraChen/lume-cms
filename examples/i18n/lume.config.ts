@@ -6,6 +6,6 @@ export default defineConfig({
     baseUrl: '/docs',
     i18n,
     root: 'content',
-    include: ['content/**/*.{md,mdx}'],
+    include: ['**/*.{md,mdx}'],
   } },
 });

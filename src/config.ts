@@ -39,7 +39,9 @@ export interface CollectionConfig {
   baseUrl?: string;
   /** The official Fumadocs i18n contract used by this collection at compile and runtime. */
   i18n?: I18nConfig;
+  /** Page globs relative to `root`. */
   include?: string[];
+  /** Ignored globs relative to `root`. */
   exclude?: string[];
   root?: string;
   /** Any Standard Schema implementation, including Valibot 1 and Zod 4. */
