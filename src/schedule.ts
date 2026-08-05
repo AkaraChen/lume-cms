@@ -1,6 +1,7 @@
 import * as v from 'valibot';
 import {
   definePlugin,
+  defineTimeGate,
   type LumePlugin,
   type Next,
   type ResolvedEntry,
@@ -31,6 +32,11 @@ export interface ScheduleOptions {
 
 export function schedule(options: ScheduleOptions = {}): SchedulePlugin {
   const field = options.field ?? 'publishDate';
+  const gate = defineTimeGate({
+    reason: 'future',
+    at: (entry) => extension(entry.compiled).publishAtMs,
+    invalidate: (entry) => !entry.compiled.draft,
+  });
   return definePlugin({
     id: 'schedule',
     frontmatter: {
@@ -50,17 +56,11 @@ export function schedule(options: ScheduleOptions = {}): SchedulePlugin {
       },
     },
     runtime: {
-      resolve(entry: ResolvedEntry, { nowMs }: RuntimeContext, next: Next<void>) {
-        next();
+      ...gate,
+      resolve(entry, context, next) {
         entry.patchData({ publishDate: extension(entry.compiled).publishDate });
-        const publishAtMs = extension(entry.compiled).publishAtMs;
-        if (publishAtMs !== null && nowMs < publishAtMs) entry.hide('future');
+        gate.resolve!(entry, context, next);
       },
-      deadline: (entries: readonly ResolvedEntry[], { nowMs }: RuntimeContext, next: Next<number>) => entries
-        .filter((entry) => !entry.compiled.draft)
-        .map((entry) => extension(entry.compiled).publishAtMs)
-        .filter((value): value is number => value !== null && value > nowMs)
-        .reduce((earliest, value) => Math.min(earliest, value), next()),
       ...(options.sort === 'date-desc' && {
         list: (_entries: readonly ResolvedEntry[], _context: RuntimeContext, next: Next<ResolvedEntry[]>) => (
           next().sort((a, b) => (

@@ -203,7 +203,9 @@ Plugins run on both sides of the JSON boundary, so each compile collection and r
 
 Each collection factory also returns `getPreviewSource(options)`. Its sparse options enable
 only the requested visibility dimensions: `draft`, `future`, and the reserved
-`expired` flag. Options are normalized to booleans before runtime plugins run.
+`expired` flag. Custom hide reasons can be revealed with `reveal: ['reason']`;
+an entry carrying multiple reasons remains hidden until every reason is revealed.
+Options are normalized before runtime plugins run.
 The built-in `schedule()` plugin relaxes its date check only for
 `future: true`; plugins that ignore `context.preview` retain their normal,
 restrictive visibility behavior.
@@ -279,7 +281,9 @@ Runtime `url` and `slugs` functions cannot be serialized into deterministic JSON
 
 Fumadocs loader plugins are a distinct runtime-only pipeline under `loaderPlugins`.
 
-Custom plugins can use `definePlugin` from `lume-cms/config`. A plugin frontmatter schema must output only fields owned by that plugin; those validated fields are removed from user page data and passed to its `entry` hook, while unvalidated input is available separately as `rawFrontmatter`. Compile hooks run as `setup` once, `entry` for each file, then `finalize` once; per-entry results are isolated under `entry.ext[plugin.id]`. Runtime hooks can narrow visibility, contribute ordering and page data, and provide the next cache deadline. Registration order is hook order, visibility hooks combine with AND, and duplicate ids fail immediately.
+Custom plugins can use `definePlugin` from `lume-cms/config`. A plugin frontmatter schema must output only fields owned by that plugin; those validated fields are removed from user page data and passed to its `entry` hook, while unvalidated input is available separately as `rawFrontmatter`. Compile stages are `setup`, isolated per-file `entry`, then `collection`. `setup` and `collection` are middleware; `entry` deliberately remains a direct return value stored under `entry.ext[plugin.id]`, preserving plugin isolation and `compile.cacheKey` semantics.
+
+Runtime stages are `resolve`, `list`, then `deadline`. Middleware receives `next` last: registration order is outside-in before `next()` and inside-out afterward, and calling `next()` twice throws. `resolve` marks a generation-scoped `ResolvedEntry` with `hide(reason)`, private state, or page-data patches. The core `list` stage applies every hide reason and default ordering once, so detail pages, lists, RSS, sitemap, navigation, and search cannot drift. Time-dependent plugins must supply `deadline`; `defineTimeGate()` derives both the hide mark and invalidation boundary from one declaration. Compiled schema v3 and the `ext` layout are unchanged.
 
 The generated JSON intentionally retains future entries and their bodies. `createFumadocsSource()` applies its only visibility predicate while producing Fumadocs `DynamicSource.files()`. The page tree, search index, navigation and every page lookup derive from those filtered files. Advancing an injected clock across a deadline changes all reads without compiling JSON or rebuilding the app.
 
