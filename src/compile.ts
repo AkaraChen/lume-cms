@@ -445,7 +445,9 @@ export async function compileContent(options: CompileOptions = {}): Promise<Comp
     const metaSchema = definition.metaSchema ?? defaultMetaSchema;
     const plugins = definition.plugins ?? config.plugins ?? [];
     assertPluginIds(plugins);
-    for (const plugin of plugins) await plugin.compile?.setup?.(pluginContext);
+    for (const plugin of plugins) {
+      await plugin.compile?.setup?.(pluginContext, async () => {});
+    }
     const entries: CompiledEntry[] = [];
     const referenceEntries: ReferenceEntry[] = [];
     const metas: CompiledMeta[] = [];

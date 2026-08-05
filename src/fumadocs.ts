@@ -343,6 +343,7 @@ function createCollectionSource<
       draft: previewOptions.draft === true,
       future: previewOptions.future === true,
       expired: previewOptions.expired === true,
+      ...(previewOptions.reveal && { reveal: previewOptions.reveal }),
     };
     return createLoader({ nowMs: currentTime(), preview }).get();
   }

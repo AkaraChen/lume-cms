@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import { collection, createFumadocsSource, createFumadocsSources } from '../src/fumadocs.js';
-import { definePlugin } from '../src/plugin.js';
+import { composeOnion, definePlugin } from '../src/plugin.js';
 import { schedule } from '../src/schedule.js';
 import type { CompiledContent, CompiledEntry } from '../src/types.js';
 
@@ -11,6 +11,32 @@ function content(plugins: string[] = [], entries: CompiledEntry[] = []): Compile
 }
 
 describe('plugin runtime', () => {
+  it('composes middleware outside-in and rejects repeated next calls', () => {
+    const events: string[] = [];
+    const layer = (name: string) => (_value: string, next: () => string) => {
+      events.push(`${name}:before`);
+      const result = next();
+      events.push(`${name}:after`);
+      return result;
+    };
+    const run = composeOnion([layer('a'), layer('b')], (value: string) => {
+      events.push('core');
+      return value.toUpperCase();
+    });
+    expect(run('ok')).toBe('OK');
+    expect(events).toEqual(['a:before', 'b:before', 'core', 'b:after', 'a:after']);
+
+    const repeated = composeOnion([
+      (_value: string, next: () => string) => `${next()}${next()}`,
+    ], (value: string) => value);
+    expect(() => repeated('x')).toThrow(/more than once/);
+
+    const shortCircuit = composeOnion([
+      (_value: string, _next: () => string) => 'owned',
+    ], () => 'core');
+    expect(shortCircuit('x')).toBe('owned');
+  });
+
   it('fails fast when compile and runtime plugin lists differ in either direction', () => {
     expect(() => createFumadocsSource(content(['schedule']))).toThrow(/compiled with plugin "schedule"/);
     expect(() => createFumadocsSource(content(), { plugins: [schedule()] })).toThrow(/Runtime plugin "schedule"/);
