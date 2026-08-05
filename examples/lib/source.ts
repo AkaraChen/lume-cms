@@ -1,5 +1,6 @@
 import content from '../content.generated.json';
-import { createFumadocsSource, type CompiledContent } from 'lume-cms';
+import { cache } from 'react';
+import { collection, createFumadocsSources, type CompiledContent } from 'lume-cms';
 import { lucideIconsPlugin } from 'fumadocs-core/source/lucide-icons';
 import { schedule } from 'lume-cms/schedule';
 import { docsContentRoute, docsImageRoute, docsRoute } from './shared';
@@ -9,13 +10,28 @@ interface PageFrontmatter extends Record<string, unknown> {
   description?: string;
   icon?: string;
   full?: boolean;
+  tags?: string[];
 }
 
-export const { getSource } = createFumadocsSource(content as CompiledContent<PageFrontmatter>, {
-  baseUrl: docsRoute,
-  plugins: [schedule()],
-  loaderPlugins: [lucideIconsPlugin()],
-});
+const requestNow = cache(() => new Date());
+
+export const { sources, getAllSources, getAllPages } = createFumadocsSources(
+  content as CompiledContent<PageFrontmatter>,
+  {
+    now: requestNow,
+    collections: {
+      docs: collection({
+        baseUrl: docsRoute,
+        plugins: [schedule()],
+        loaderPlugins: [lucideIconsPlugin()],
+      }),
+      blog: collection({ baseUrl: '/blog', plugins: [schedule()] }),
+    },
+  },
+);
+
+export const { getSource } = sources.docs;
+export const { getSource: getBlogSource } = sources.blog;
 
 type Source = Awaited<ReturnType<typeof getSource>>;
 type Page = Source['$inferPage'];

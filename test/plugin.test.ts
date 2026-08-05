@@ -1,5 +1,5 @@
 import { describe, expect, expectTypeOf, it } from 'vitest';
-import { createFumadocsSource } from '../src/fumadocs.js';
+import { collection, createFumadocsSource, createFumadocsSources } from '../src/fumadocs.js';
 import { definePlugin } from '../src/plugin.js';
 import { schedule } from '../src/schedule.js';
 import type { CompiledContent, CompiledEntry } from '../src/types.js';
@@ -7,7 +7,7 @@ import type { CompiledContent, CompiledEntry } from '../src/types.js';
 const body = { markdown: '', code: '', toc: [], structuredData: { headings: [], contents: [] } };
 
 function content(plugins: string[] = [], entries: CompiledEntry[] = []): CompiledContent {
-  return { schemaVersion: 2, plugins, entries };
+  return { schemaVersion: 3, collections: { default: { plugins, entries } } };
 }
 
 describe('plugin runtime', () => {
@@ -22,9 +22,11 @@ describe('plugin runtime', () => {
     })).toThrow(/Duplicate lume-cms plugin id/);
   });
 
-  it('rejects legacy v1 content with a migration message', () => {
+  it('rejects legacy v1 and v2 content with a migration message', () => {
     expect(() => createFumadocsSource({ schemaVersion: 1, entries: [] } as never))
       .toThrow(/schema version 1; rebuild content/);
+    expect(() => createFumadocsSource({ schemaVersion: 2, entries: [] } as never))
+      .toThrow(/schema version 2; rebuild content/);
   });
 
   it('combines visibility with AND and falls back to slug ordering', async () => {
@@ -55,5 +57,37 @@ describe('plugin runtime', () => {
     }]));
     const plainPage = (await plain.getSource()).getPages()[0]!;
     expect(plainPage.data).not.toHaveProperty('publishDate');
+  });
+
+  it('preserves plugin page-data types independently in nested collections', async () => {
+    const sources = createFumadocsSources({
+      schemaVersion: 3,
+      collections: {
+        blog: { plugins: ['schedule'], entries: [{
+          slug: ['post'], path: 'post.md', draft: false, data: { title: 'Post' },
+          ext: { schedule: { publishDate: null, publishAtMs: null } }, body,
+        }] },
+        docs: { plugins: [], entries: [{
+          slug: ['page'], path: 'page.md', draft: false, data: { title: 'Page' }, ext: {}, body,
+        }] },
+      },
+    }, {
+      collections: {
+        blog: collection({ baseUrl: '/blog', plugins: [schedule()] }),
+        docs: collection({ baseUrl: '/docs', plugins: [] }),
+      },
+    }).sources;
+    const blog = (await sources.blog.getSource()).getPages()[0]!;
+    const docs = (await sources.docs.getSource()).getPages()[0]!;
+    expectTypeOf(blog.data.publishDate).toEqualTypeOf<string | null>();
+    expect(blog.data.publishDate).toBeNull();
+    expect(docs.data).not.toHaveProperty('publishDate');
+  });
+
+  it('orders undated schedule entries without returning NaN', () => {
+    const plugin = schedule();
+    const a = { slug: ['a'], path: 'a.md', draft: false, data: {}, ext: { schedule: { publishDate: null, publishAtMs: null } }, body };
+    const b = { slug: ['b'], path: 'b.md', draft: false, data: {}, ext: { schedule: { publishDate: null, publishAtMs: null } }, body };
+    expect(plugin.runtime?.compare?.(a, b)).toBe(0);
   });
 });

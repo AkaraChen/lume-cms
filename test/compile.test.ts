@@ -39,13 +39,57 @@ afterEach(async () => {
 });
 
 describe('compileContent', () => {
+  it('compiles isolated collections, permits cross-collection slugs, and emits deterministic v3 JSON', async () => {
+    const cwd = await fixture({
+      'content/docs/shared.mdx': '---\ntitle: Docs shared\n---\nDocs',
+      'content/blog/shared.mdx': '---\ntitle: Blog shared\npublishDate: 2026-01-01T00:00:00Z\n---\nBlog',
+    });
+    const config = {
+      collections: {
+        docs: { root: 'content/docs', include: ['content/docs/**/*.mdx'], plugins: [] },
+        blog: { root: 'content/blog', include: ['content/blog/**/*.mdx'], plugins: [schedule()] },
+      },
+    };
+    const one = await compileContent({ cwd, write: false, config });
+    const two = await compileContent({ cwd, write: false, config });
+
+    expect(one.schemaVersion).toBe(3);
+    expect(Object.keys(one.collections)).toEqual(['blog', 'docs']);
+    expect(one.collections.docs?.entries[0]?.slug).toEqual(['shared']);
+    expect(one.collections.blog?.entries[0]?.slug).toEqual(['shared']);
+    expect(one.collections.docs?.plugins).toEqual([]);
+    expect(one.collections.blog?.plugins).toEqual(['schedule']);
+    expect(serializeCompiledContent(one)).toBe(serializeCompiledContent(two));
+  });
+
+  it('rejects a file included by two collections and names both owners', async () => {
+    const cwd = await fixture({ 'content/shared.mdx': '---\ntitle: Shared\n---\nBody' });
+    await expect(compileContent({
+      cwd,
+      write: false,
+      config: {
+        collections: {
+          docs: { include: ['content/**/*.mdx'] },
+          blog: { include: ['content/shared.mdx'] },
+        },
+      },
+    })).rejects.toThrow(/both collections "blog" and "docs"|both collections "docs" and "blog"/);
+  });
+
+  it('normalizes deprecated content config to the same default collection', async () => {
+    const cwd = await fixture({ 'content/page.md': '---\ntitle: Page\n---\nBody' });
+    const legacy = await compileContent({ cwd, write: false, config: { content: {} } });
+    const current = await compileContent({ cwd, write: false, config: { collections: { default: {} } } });
+    expect(serializeCompiledContent(legacy)).toBe(serializeCompiledContent(current));
+  });
+
   it('compiles frontmatter Markdown with a Valibot schema', async () => {
     const cwd = await fixture({
       'content/hello.md': '---\ntitle: Hello\npublishDate: 2026-09-01T10:00:00+08:00\n---\n# Heading\nBody',
     });
     const result = await compileContent({ cwd, write: false });
-    expect(result.entries.map((item) => item.slug.join('/'))).toEqual(['hello']);
-    expect(result.entries[0]?.body.toc).toEqual([{ title: 'Heading', url: '#heading', depth: 1 }]);
+    expect(result.collections.default!.entries.map((item) => item.slug.join('/'))).toEqual(['hello']);
+    expect(result.collections.default!.entries[0]?.body.toc).toEqual([{ title: 'Heading', url: '#heading', depth: 1 }]);
   });
 
   it('compiles and renders MDX with frontmatter and components', async () => {
@@ -53,7 +97,7 @@ describe('compileContent', () => {
       'content/component.mdx': '---\ntitle: Component\n---\n# MDX heading\n\n<Callout answer={40 + 2}>MDX body</Callout>',
     });
     const result = await compileContent({ cwd, write: false });
-    const body = result.entries[0]!.body;
+    const body = result.collections.default!.entries[0]!.body;
     expect(body.code).toContain('function _createMdxContent');
     expect(body.toc).toEqual([{ title: 'MDX heading', url: '#mdx-heading', depth: 1 }]);
 
@@ -91,7 +135,7 @@ const answer = 42;
     expect(html).toContain('--shiki-light');
     expect(html).toContain('class="line"');
     // The TOC comes from `rehypeToc`, so its anchors are the rendered heading ids.
-    for (const item of result.entries[0]!.body.toc) {
+    for (const item of result.collections.default!.entries[0]!.body.toc) {
       expect(html).toContain(`id="${item.url.slice(1)}"`);
     }
   });
@@ -114,9 +158,9 @@ pnpm add lume-cms
     });
     const result = await compileContent({ cwd, write: false });
 
-    expect(result.entries[0]?.slug).toEqual(['%E4%BD%A0%E5%A5%BD']);
-    expect(result.entries[0]?.body.code).toContain('CodeBlockTabs');
-    expect(result.entries[0]?.body.structuredData.headings[0]?.content).toBe('Search heading');
+    expect(result.collections.default!.entries[0]?.slug).toEqual(['%E4%BD%A0%E5%A5%BD']);
+    expect(result.collections.default!.entries[0]?.body.code).toContain('CodeBlockTabs');
+    expect(result.collections.default!.entries[0]?.body.structuredData.headings[0]?.content).toBe('Search heading');
   });
 
   it('uses an injected Valibot schema and reports the source path on failure', async () => {
@@ -144,7 +188,7 @@ pnpm add lume-cms
     } satisfies StandardSchemaV1<unknown, Record<string, unknown>>;
 
     const result = await compileContent({ cwd, write: false, config: { content: { schema } } });
-    expect(result.entries[0]?.data.title).toBe('Standard');
+    expect(result.collections.default!.entries[0]?.data.title).toBe('Standard');
   });
 
   it('compiles structured search data and a root index page', async () => {
@@ -156,8 +200,8 @@ pnpm add lume-cms
       write: false,
       config: { content: { root: 'content/docs', include: ['content/docs/**/*.mdx'] } },
     });
-    expect(result.entries[0]).toMatchObject({ slug: [], path: 'index.mdx' });
-    expect(result.entries[0]?.body.structuredData.headings[0]?.content).toBe('Searchable heading');
+    expect(result.collections.default!.entries[0]).toMatchObject({ slug: [], path: 'index.mdx' });
+    expect(result.collections.default!.entries[0]?.body.structuredData.headings[0]?.content).toBe('Searchable heading');
     const source = await createFumadocsSource(result).getSource();
     const page = source.getPages()[0];
     expect(typeof page?.data.body).toBe('function');
@@ -179,9 +223,9 @@ pnpm add lume-cms
     const config = { plugins: [schedule()] };
     const one = await compileContent({ cwd, write: false, config });
     const two = await compileContent({ cwd, write: false, config });
-    expect((one.entries[0]?.ext.schedule as { publishAtMs: number }).publishAtMs)
-      .toBe((one.entries[1]?.ext.schedule as { publishAtMs: number }).publishAtMs);
-    expect(one.entries[0]?.data).not.toHaveProperty('publishDate');
+    expect((one.collections.default!.entries[0]?.ext.schedule as { publishAtMs: number }).publishAtMs)
+      .toBe((one.collections.default!.entries[1]?.ext.schedule as { publishAtMs: number }).publishAtMs);
+    expect(one.collections.default!.entries[0]?.data).not.toHaveProperty('publishDate');
     expect(serializeCompiledContent(one)).toBe(serializeCompiledContent(two));
     expect(serializeCompiledContent(one)).not.toContain(cwd);
   });
@@ -193,7 +237,7 @@ pnpm add lume-cms
     });
     await compileContent({ cwd });
     const output = JSON.parse(await readFile(path.join(cwd, 'out.json'), 'utf8'));
-    expect(output.entries[0].slug).toEqual(['page']);
+    expect(output.collections.default.entries[0].slug).toEqual(['page']);
   });
 
   it('passes transformed and defaulted plugin schema output without a separate keys declaration', async () => {
@@ -222,8 +266,8 @@ pnpm add lume-cms
     });
 
     expect(calls).toEqual(['setup:one', 'setup:two', 'entry:one', 'entry:two', 'finalize:one', 'finalize:two']);
-    expect(result.entries[0]?.data).toEqual({ title: 'Page', draft: false });
-    expect(result.entries[0]?.ext).toEqual({
+    expect(result.collections.default!.entries[0]?.data).toEqual({ title: 'Page', draft: false });
+    expect(result.collections.default!.entries[0]?.ext).toEqual({
       one: { value: 'HIDDEN', mode: 'default-mode' },
       two: { value: 'HIDDEN', mode: 'default-mode' },
     });

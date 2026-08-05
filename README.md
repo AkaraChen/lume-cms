@@ -16,19 +16,33 @@ import { defineConfig } from 'lume-cms/config';
 import { schedule } from 'lume-cms/schedule';
 
 export default defineConfig({
-  content: {
-    root: 'content',
-    include: ['content/**/*.{md,mdx}'],
-    schema: v.looseObject({
-      title: v.string(),
-      description: v.optional(v.string()),
-      draft: v.optional(v.boolean(), false),
-    }),
+  collections: {
+    docs: {
+      root: 'content/docs',
+      include: ['content/docs/**/*.{md,mdx}'],
+      schema: v.looseObject({
+        title: v.string(),
+        description: v.optional(v.string()),
+        draft: v.optional(v.boolean(), false),
+      }),
+    },
+    blog: {
+      root: 'content/blog',
+      include: ['content/blog/**/*.{md,mdx}'],
+      schema: v.looseObject({
+        title: v.string(),
+        description: v.optional(v.string()),
+        tags: v.optional(v.array(v.string())),
+        draft: v.optional(v.boolean(), false),
+      }),
+    },
   },
   plugins: [schedule()],
   output: 'content.generated.json',
 });
 ```
+
+Each collection owns its root, globs, schema, and optional plugin list. Top-level `plugins` are defaults for collections that omit `plugins`. A source file may belong to only one collection. The old `content` shape remains a one-minor compatibility path, compiles as a collection named `default`, and emits a deprecation warning. Schema-version 2 JSON must be rebuilt; the runtime intentionally does not guess a migration.
 
 The configuration accepts the Standard Schema interface. Valibot 1.x works directly as shown; Zod 4 and other conforming implementations can be used without an adapter. The built-in page schema includes Fumadocs' `title`, `description`, `icon`, and `full` fields. Plugin-owned fields such as `publishDate` stay out of the user schema and compiled page data.
 
@@ -49,16 +63,27 @@ The independently importable `schedule()` plugin owns `publishDate`. It accepts 
 
 ```ts
 import content from './content.generated.json';
-import { createFumadocsSource } from 'lume-cms';
+import { cache } from 'react';
+import { collection, createFumadocsSources } from 'lume-cms';
 import { schedule } from 'lume-cms/schedule';
 
-export const { getSource } = createFumadocsSource(content, {
-  baseUrl: '/docs',
-  plugins: [schedule()],
+const requestNow = cache(() => new Date());
+
+export const { sources, getAllSources, getAllPages } = createFumadocsSources(content, {
+  now: requestNow,
+  collections: {
+    docs: collection({ baseUrl: '/docs', plugins: [schedule()] }),
+    blog: collection({ baseUrl: '/blog', plugins: [schedule()] }),
+  },
 });
+
+export const { getSource: getDocsSource } = sources.docs;
+export const { getSource: getBlogSource } = sources.blog;
 ```
 
-Plugins run on both sides of the JSON boundary, so the compile config and runtime source must register the same ordered plugin list. The compiled JSON records plugin ids and `createFumadocsSource()` fails immediately if either side is missing, extra, duplicated, or reordered. Fumadocs loader plugins can still be supplied separately through `loaderPlugins`.
+`collection()` is a type-preserving identity helper: each nested source keeps the page-data fields contributed by its own plugin tuple. The runtime requires the compiled and configured collection names to match in both directions and rejects duplicate `baseUrl` values. `getAllPages()` is the visibility-safe union for sitemap and text exports. The singular `createFumadocsSource()` remains available only when JSON contains exactly one collection.
+
+Plugins run on both sides of the JSON boundary, so each compile collection and runtime source must register the same ordered plugin list. The compiled JSON records plugin ids and the runtime fails immediately if either side is missing, extra, duplicated, or reordered. Fumadocs loader plugins can still be supplied separately through `loaderPlugins`.
 
 Custom plugins can use `definePlugin` from `lume-cms/config`. A plugin frontmatter schema must output only fields owned by that plugin; those validated fields are removed from user page data and passed to its `entry` hook, while unvalidated input is available separately as `rawFrontmatter`. Compile hooks run as `setup` once, `entry` for each file, then `finalize` once; per-entry results are isolated under `entry.ext[plugin.id]`. Runtime hooks can narrow visibility, contribute ordering and page data, and provide the next cache deadline. Registration order is hook order, visibility hooks combine with AND, and duplicate ids fail immediately.
 
@@ -70,11 +95,11 @@ The Fumadocs adapter uses its public `DynamicSource` and `dynamicLoader()` APIs.
 validUntil = next unpublished publishDate, or Infinity when none remain
 ```
 
-It invalidates at that boundary and coalesces concurrent deadline refreshes into one load.
+Each collection caches bounded, immutable loader generations over `[observedAt, validUntil)` intervals. Concurrent reads in one interval coalesce, while an older frozen request keeps its pre-publication generation after a newer request crosses the deadline; evicted generations are safely rebuilt from their frozen time. A docs deadline does not affect blog and vice versa. Pass a request-scoped frozen clock such as React `cache(() => new Date())` at the top level; this keeps navigation, page, metadata, OG, RSS, and search self-consistent when overlapping requests straddle a publication boundary.
 
 ## Next.js requirements
 
-Version 1 requires request-time rendering with `export const dynamic = 'force-dynamic'` for page details, layouts/navigation, RSS, search, metadata/OG, text exports, and sitemap. Every server component and route handler must run `await getSource()` inside the request; never retain an awaited loader instance at module scope. Fumadocs search should receive the factory itself as `createFromSource(getSource)`, so it obtains the current loader instance when indexing.
+Request-time publishing requires `export const dynamic = 'force-dynamic'` for every collection's page details, layouts/navigation, lists, RSS, search, metadata/OG, text exports, and sitemap. Every server component and route handler must load its source inside the request; never retain an awaited loader instance at module scope. Single-source search can use `createFromSource(getSource)`. Multi-source search should use `createSearchAPI('advanced', { indexes })`, tag every collection's pages, and create the search API inside the request so a future post appears without a redeploy.
 
 Sitemaps are metadata routes and static by default, so `app/sitemap.ts` must also export `dynamic = 'force-dynamic'`. All consumers use request-time visibility; do not add a static route or an additional cache around the source. The `examples/` directory is the official Create Fumadocs starter with only the source wiring changed, plus the minimal RSS and sitemap routes required by this package's acceptance criteria.
 
@@ -83,9 +108,11 @@ Sitemaps are metadata routes and static by default, so `app/sitemap.ts` must als
 The runtime entry points import `server-only`. Keep the JSON and any module that imports it behind the server boundary. After building an example Next.js app, scan client assets using distinctive unpublished title/body markers:
 
 ```sh
-node scripts/scan-client.mjs examples "UNPUBLISHED_TITLE" "UNPUBLISHED_BODY_SENTINEL"
+node scripts/scan-client.mjs examples \
+  "UNPUBLISHED_DOCS_TITLE" "UNPUBLISHED_DOCS_BODY" \
+  "UNPUBLISHED_BLOG_TITLE" "UNPUBLISHED_BLOG_BODY"
 ```
 
 The repository-only command fails if the example's `.next/static` contains zero files, preventing a wrong-directory scan from reporting a false success. Consumers should perform an equivalent post-build scan in their own CI. Also derive RSS, sitemap, search, navigation, metadata/OG, text exports, and the content-negotiation proxy path from `getSource()`; these are independent leak paths.
 
-Important: future bodies are plaintext in `content.generated.json` and therefore in Git history when that file is committed. This is accepted for the private v1 repository, but a public repository provides no confidentiality even if the website filters entries correctly. Do not commit sensitive future material to a public repository.
+Important: future docs and blog bodies are plaintext in `content.generated.json` and therefore in Git history when that file is committed. A public repository provides no confidentiality even if the website filters entries correctly. Do not commit sensitive future material to a public repository.

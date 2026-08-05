@@ -9,9 +9,9 @@ describe('example request-time publishing contract', () => {
       file,
       source: await readFile(file, 'utf8'),
     })));
-    const consumers = routes.filter(({ source }) => source.includes('getSource'));
+    const consumers = routes.filter(({ source }) => /get(?:Source|BlogSource|AllSources|AllPages)/.test(source));
 
-    expect(consumers.map(({ file }) => file).sort()).toHaveLength(9);
+    expect(consumers.map(({ file }) => file).sort()).toHaveLength(11);
     for (const { file, source } of consumers) {
       expect(source, file).toContain("export const dynamic = 'force-dynamic'");
       expect(source, file).not.toMatch(/force-static|fetchCache|unstable_cache/);

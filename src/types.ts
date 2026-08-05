@@ -25,8 +25,12 @@ export interface CompiledEntry<Data extends Record<string, unknown> = Record<str
   body: CompiledBody;
 }
 
-export interface CompiledContent<Data extends Record<string, unknown> = Record<string, unknown>> {
-  schemaVersion: 2;
+export interface CompiledCollection<Data extends Record<string, unknown> = Record<string, unknown>> {
   plugins: string[];
   entries: CompiledEntry<Data>[];
+}
+
+export interface CompiledContent<Data extends Record<string, unknown> = Record<string, unknown>> {
+  schemaVersion: 3;
+  collections: Record<string, CompiledCollection<Data>>;
 }

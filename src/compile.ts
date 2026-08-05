@@ -11,7 +11,7 @@ import {
   type ContentSchema,
   type LumeConfig,
 } from './config.js';
-import type { CompiledBody, CompiledContent, CompiledEntry } from './types.js';
+import type { CompiledBody, CompiledCollection, CompiledContent, CompiledEntry } from './types.js';
 import { assertPluginIds } from './plugin.js';
 
 export interface CompileOptions {
@@ -70,68 +70,110 @@ function assertUniqueSlugs(entries: CompiledEntry[]) {
   }
 }
 
+let warnedDeprecatedContent = false;
+
+function normalizedCollections(config: LumeConfig) {
+  if (config.collections && config.content) {
+    throw new TypeError('Configure either `collections` or deprecated `content`, not both');
+  }
+  if (config.collections) {
+    if (Object.keys(config.collections).length === 0) throw new TypeError('lume-cms requires at least one collection');
+    return config.collections;
+  }
+  if (!warnedDeprecatedContent) {
+    process.emitWarning('lume-cms `content` config is deprecated; migrate to `collections`', {
+      code: 'LUME_CMS_DEPRECATED_CONTENT',
+    });
+    warnedDeprecatedContent = true;
+  }
+  return { default: config.content ?? {} };
+}
+
+async function collectionFiles(
+  cwd: string,
+  collections: Record<string, { include?: string[]; exclude?: string[] }>,
+) {
+  const result = new Map<string, string[]>();
+  const owners = new Map<string, string>();
+  for (const name of Object.keys(collections).sort()) {
+    const item = collections[name]!;
+    const files = await fg(item.include ?? ['content/**/*.{md,mdx,markdown}'], {
+      cwd,
+      ignore: item.exclude,
+      onlyFiles: true,
+      unique: true,
+    });
+    for (const sourcePath of files) {
+      const absolutePath = path.resolve(cwd, sourcePath);
+      const owner = owners.get(absolutePath);
+      if (owner) {
+        throw new Error(`Content file ${sourcePath} is included by both collections ${JSON.stringify(owner)} and ${JSON.stringify(name)}`);
+      }
+      owners.set(absolutePath, name);
+    }
+    result.set(name, files.sort());
+  }
+  return result;
+}
+
 export async function compileContent(options: CompileOptions = {}): Promise<CompiledContent> {
   const cwd = path.resolve(options.cwd ?? process.cwd());
   const config = options.config ?? (await loadLumeConfig(cwd));
-  const contentRoot = path.resolve(cwd, config.content?.root ?? 'content');
-  const schema = config.content?.schema ?? defaultFrontmatterSchema;
-  const plugins = config.plugins ?? [];
-  assertPluginIds(plugins);
+  const configured = normalizedCollections(config);
+  const files = await collectionFiles(cwd, configured);
+  const collections: Record<string, CompiledCollection> = {};
   const pluginContext = { cwd, config };
-  for (const plugin of plugins) await plugin.compile?.setup?.(pluginContext);
-  const files = await fg(config.content?.include ?? ['content/**/*.{md,mdx,markdown}'], {
-    cwd,
-    ignore: config.content?.exclude,
-    onlyFiles: true,
-    unique: true,
-  });
 
-  const entries: CompiledEntry[] = [];
+  for (const name of Object.keys(configured).sort()) {
+    const definition = configured[name]!;
+    const contentRoot = path.resolve(cwd, definition.root ?? 'content');
+    const schema = definition.schema ?? defaultFrontmatterSchema;
+    const plugins = definition.plugins ?? config.plugins ?? [];
+    assertPluginIds(plugins);
+    for (const plugin of plugins) await plugin.compile?.setup?.(pluginContext);
+    const entries: CompiledEntry[] = [];
 
-  for (const sourcePath of files.sort()) {
-    const absolutePath = path.resolve(cwd, sourcePath);
-    const contentPath = path.relative(contentRoot, absolutePath).replace(/\\/g, '/');
-    const raw = await readFile(absolutePath, 'utf8');
-    const parsed = frontmatter(raw);
-    const data = { ...await validate(schema, parsed.data, sourcePath, 'frontmatter') };
-    const slug = typeof data.slug === 'string' ? data.slug.split('/').filter(Boolean) : getSlugs(contentPath);
-    const ext: Record<string, unknown> = {};
-    for (const plugin of plugins) {
-      let pluginFrontmatter: Record<string, unknown> = {};
-      if (plugin.frontmatter) {
-        pluginFrontmatter = await validate(
-          plugin.frontmatter.schema,
-          parsed.data,
-          sourcePath,
-          `${plugin.id} plugin frontmatter`,
-        );
-        for (const key of Object.keys(pluginFrontmatter)) delete data[key];
+    for (const sourcePath of files.get(name)!) {
+      const absolutePath = path.resolve(cwd, sourcePath);
+      const contentPath = path.relative(contentRoot, absolutePath).replace(/\\/g, '/');
+      const raw = await readFile(absolutePath, 'utf8');
+      const parsed = frontmatter(raw);
+      const data = { ...await validate(schema, parsed.data, sourcePath, 'frontmatter') };
+      const slug = typeof data.slug === 'string' ? data.slug.split('/').filter(Boolean) : getSlugs(contentPath);
+      const ext: Record<string, unknown> = {};
+      for (const plugin of plugins) {
+        let pluginFrontmatter: Record<string, unknown> = {};
+        if (plugin.frontmatter) {
+          pluginFrontmatter = await validate(plugin.frontmatter.schema, parsed.data, sourcePath, `${plugin.id} plugin frontmatter`);
+          for (const key of Object.keys(pluginFrontmatter)) delete data[key];
+        }
+        if (plugin.compile?.entry) {
+          ext[plugin.id] = await plugin.compile.entry({
+            sourcePath,
+            contentPath,
+            slug,
+            frontmatter: pluginFrontmatter,
+            rawFrontmatter: parsed.data as Record<string, unknown>,
+          });
+        }
       }
-      if (plugin.compile?.entry) {
-        ext[plugin.id] = await plugin.compile.entry({
-          sourcePath,
-          contentPath,
-          slug,
-          frontmatter: pluginFrontmatter,
-          rawFrontmatter: parsed.data as Record<string, unknown>,
-        });
-      }
+      entries.push({
+        slug,
+        path: contentPath,
+        draft: data.draft === true,
+        data,
+        ext,
+        body: await compileBody(parsed.content),
+      });
     }
-    entries.push({
-      slug,
-      path: contentPath,
-      draft: data.draft === true,
-      data,
-      ext,
-      body: await compileBody(parsed.content),
-    });
+
+    entries.sort((a, b) => a.slug.join('/').localeCompare(b.slug.join('/')));
+    assertUniqueSlugs(entries);
+    for (const plugin of plugins) await plugin.compile?.finalize?.(entries, pluginContext);
+    collections[name] = { plugins: plugins.map((plugin) => plugin.id), entries };
   }
 
-  entries.sort((a, b) => a.slug.join('/').localeCompare(b.slug.join('/')));
-  assertUniqueSlugs(entries);
-  for (const plugin of plugins) await plugin.compile?.finalize?.(entries, pluginContext);
-
-  const content: CompiledContent = { schemaVersion: 2, plugins: plugins.map((plugin) => plugin.id), entries };
+  const content: CompiledContent = { schemaVersion: 3, collections };
   if (options.write !== false) {
     await writeFile(path.resolve(cwd, config.output ?? 'content.generated.json'), serializeCompiledContent(content), 'utf8');
   }
