@@ -12,19 +12,40 @@ import {
   type ContentSchema,
   type LumeConfig,
 } from './config.js';
-import type { CompiledBody, CompiledCollection, CompiledContent, CompiledEntry, CompiledMeta } from './types.js';
+import type {
+  CompiledBody,
+  CompiledCollection,
+  CompiledContent,
+  CompileDiagnostic,
+  CompiledEntry,
+  CompiledMeta,
+} from './types.js';
 import { assertPluginIds, type AnyLumePlugin } from './plugin.js';
+import { normalizeBaseUrl } from './url.js';
+import {
+  createReferenceCollector,
+  validateReferences,
+  type ExtractedReference,
+  type ReferenceEntry,
+} from './diagnostics.js';
 
 export interface CompileOptions {
   cwd?: string;
   config?: LumeConfig;
   cache?: CompileCache;
+  strict?: boolean;
   write?: boolean;
+}
+
+interface CompiledUnit {
+  entry: CompiledEntry;
+  references: ExtractedReference[];
+  anchors: string[];
 }
 
 interface CachedEntry {
   digest: string;
-  value: CompiledEntry;
+  value: CompiledUnit;
 }
 
 interface CachedMeta {
@@ -50,13 +71,13 @@ export class CompileCache {
     this.metas.clear();
   }
 
-  getEntry(path: string, digest: string): CompiledEntry | undefined {
+  getEntry(path: string, digest: string): CompiledUnit | undefined {
     const cached = this.entries.get(path);
     if (cached?.digest !== digest) return;
     return structuredClone(cached.value);
   }
 
-  setEntry(path: string, digest: string, value: CompiledEntry) {
+  setEntry(path: string, digest: string, value: CompiledUnit) {
     this.entries.set(path, { digest, value: structuredClone(value) });
   }
 
@@ -76,11 +97,19 @@ export class CompileCache {
   }
 }
 
-async function compileBody(source: string): Promise<CompiledBody> {
+async function compileBody(source: string): Promise<CompiledBody & {
+  references: ExtractedReference[];
+  anchors: string[];
+}> {
+  const collected = { references: [], anchors: [] } satisfies {
+    references: ExtractedReference[];
+    anchors: string[];
+  };
   const file = await compileMdx(source, await mdxPreset({
     development: false,
     remarkHeadingOptions: { generateToc: true },
     remarkImageOptions: { useImport: false },
+    remarkPlugins: [createReferenceCollector(collected)],
   }));
   const structuredData = file.data.structuredData;
   if (!structuredData) throw new Error('Fumadocs mdxPreset did not produce structured data');
@@ -89,6 +118,8 @@ async function compileBody(source: string): Promise<CompiledBody> {
     code: String(file),
     toc: (file.data.toc ?? []) as CompiledBody['toc'],
     structuredData,
+    references: collected.references,
+    anchors: collected.anchors,
   };
 }
 
@@ -146,6 +177,13 @@ function digest(...values: string[]): string {
 
 export function serializeCompiledContent(content: CompiledContent): string {
   return `${JSON.stringify(stableValue(content), null, 2)}\n`;
+}
+
+export class CompileDiagnosticsError extends Error {
+  constructor(public readonly diagnostics: CompileDiagnostic[]) {
+    super(`Content reference validation failed with ${diagnostics.length} diagnostic${diagnostics.length === 1 ? '' : 's'}`);
+    this.name = 'CompileDiagnosticsError';
+  }
 }
 
 async function validate(schema: ContentSchema, value: unknown, sourcePath: string, kind: string) {
@@ -243,7 +281,7 @@ async function compileEntry(
   contentPath: string,
   schema: ContentSchema,
   plugins: readonly AnyLumePlugin[],
-): Promise<CompiledEntry> {
+): Promise<CompiledUnit> {
   const parsed = frontmatter(raw);
   const data = { ...await validate(schema, parsed.data, sourcePath, 'frontmatter') };
   const slug = typeof data.slug === 'string' ? data.slug.split('/').filter(Boolean) : getSlugs(contentPath);
@@ -269,13 +307,18 @@ async function compileEntry(
       });
     }
   }
+  const { references, anchors, ...body } = await compileBody(parsed.content);
   return {
-    slug,
-    path: contentPath,
-    draft: data.draft === true,
-    data,
-    ext,
-    body: await compileBody(parsed.content),
+    entry: {
+      slug,
+      path: contentPath,
+      draft: data.draft === true,
+      data,
+      ext,
+      body,
+    },
+    references,
+    anchors,
   };
 }
 
@@ -285,7 +328,7 @@ export async function compileContent(options: CompileOptions = {}): Promise<Comp
   const configured = normalizedCollections(config);
   const files = await collectionFiles(cwd, configured);
   const collections: Record<string, CompiledCollection> = {};
-  const fingerprint = digest('lume-cms-compile-cache-v1', JSON.stringify(fingerprintValue({
+  const fingerprint = digest('lume-cms-compile-cache-v2', JSON.stringify(fingerprintValue({
     collections: configured,
     plugins: config.plugins,
   })));
@@ -294,17 +337,20 @@ export async function compileContent(options: CompileOptions = {}): Promise<Comp
   const pluginContext = { cwd, config };
   const entryPaths = new Set<string>();
   const metaPaths = new Set<string>();
+  const allDiagnostics: CompileDiagnostic[] = [];
   let cachedEntries = 0;
   let compiledEntries = 0;
 
   for (const name of Object.keys(configured).sort()) {
     const definition = configured[name]!;
+    const baseUrl = normalizeBaseUrl(definition.baseUrl);
     const contentRoot = path.resolve(cwd, definition.root ?? 'content');
     const schema = definition.schema ?? defaultFrontmatterSchema;
     const plugins = definition.plugins ?? config.plugins ?? [];
     assertPluginIds(plugins);
     for (const plugin of plugins) await plugin.compile?.setup?.(pluginContext);
     const entries: CompiledEntry[] = [];
+    const referenceEntries: ReferenceEntry[] = [];
     const metas: CompiledMeta[] = [];
 
     for (const sourcePath of files.get(name)!.metas) {
@@ -325,26 +371,36 @@ export async function compileContent(options: CompileOptions = {}): Promise<Comp
       const contentPath = relativeContentPath(contentRoot, absolutePath);
       const raw = await readFile(absolutePath, 'utf8');
       const fileDigest = digest(fingerprint, name, sourcePath, raw);
-      let entry = cache?.getEntry(sourcePath, fileDigest);
-      if (entry) cachedEntries += 1;
+      let unit = cache?.getEntry(sourcePath, fileDigest);
+      if (unit) cachedEntries += 1;
       else {
-        entry = await compileEntry(raw, sourcePath, contentPath, schema, plugins);
-        cache?.setEntry(sourcePath, fileDigest, entry);
+        unit = await compileEntry(raw, sourcePath, contentPath, schema, plugins);
+        cache?.setEntry(sourcePath, fileDigest, unit);
         compiledEntries += 1;
       }
       entryPaths.add(sourcePath);
-      entries.push(entry);
+      entries.push(unit.entry);
+      referenceEntries.push({ sourcePath, ...unit });
     }
 
     entries.sort((a, b) => a.slug.join('/').localeCompare(b.slug.join('/')));
     assertUniqueSlugs(entries);
     for (const plugin of plugins) await plugin.compile?.finalize?.(entries, pluginContext);
-    collections[name] = { plugins: plugins.map((plugin) => plugin.id), entries, metas };
+    const diagnostics = await validateReferences(cwd, referenceEntries, baseUrl);
+    allDiagnostics.push(...diagnostics);
+    collections[name] = {
+      baseUrl,
+      plugins: plugins.map((plugin) => plugin.id),
+      entries,
+      metas,
+      diagnostics,
+    };
   }
 
-  const content: CompiledContent = { schemaVersion: 3, collections };
   cache?.prune(entryPaths, metaPaths);
   if (cache) cache.stats = { cachedEntries, compiledEntries };
+  if (options.strict && allDiagnostics.length > 0) throw new CompileDiagnosticsError(allDiagnostics);
+  const content: CompiledContent = { schemaVersion: 3, collections };
   if (options.write !== false) {
     await writeFile(path.resolve(cwd, config.output ?? 'content.generated.json'), serializeCompiledContent(content), 'utf8');
   }

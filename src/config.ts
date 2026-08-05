@@ -19,6 +19,8 @@ export const defaultFrontmatterSchema = v.looseObject({
 export type ContentSchema = StandardSchemaV1<unknown, Record<string, unknown>>;
 
 export interface CollectionConfig {
+  /** Public route prefix shared by reference validation and the Fumadocs loader. */
+  baseUrl?: string;
   include?: string[];
   exclude?: string[];
   root?: string;

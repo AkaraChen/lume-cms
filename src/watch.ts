@@ -12,6 +12,7 @@ export interface WatchBuildResult {
 export interface WatchContentOptions {
   cwd?: string;
   debounceMs?: number;
+  strict?: boolean;
   onBuild?(result: WatchBuildResult): void | Promise<void>;
   onError?(error: unknown): void | Promise<void>;
 }
@@ -50,7 +51,7 @@ export async function watchContent(options: WatchContentOptions = {}): Promise<C
       const config = await loadLumeConfig(cwd);
       outputPaths.add(path.resolve(cwd, config.output ?? 'content.generated.json'));
       watcher.add(path.resolve(cwd, config.content?.root ?? 'content'));
-      const content = await compileContent({ cwd, config, cache });
+      const content = await compileContent({ cwd, config, cache, strict: options.strict });
       const result = { content, stats: { ...cache.stats } };
       await options.onBuild?.(result);
       return result;
