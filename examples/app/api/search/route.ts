@@ -11,7 +11,8 @@ export async function GET(request: Request) {
       title: page.data.title,
       description: page.data.description,
       url: page.url,
-      tag,
+      locale: page.locale,
+      tag: [tag, ...(page.data.tags ?? [])],
       structuredData: page.data.structuredData,
     }))),
   });
