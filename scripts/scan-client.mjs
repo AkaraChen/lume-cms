@@ -7,7 +7,7 @@ if (!appDir || markers.length === 0) {
   throw new Error('Usage: node scripts/scan-client.mjs <appDir> <marker...>');
 }
 
-const files = await fg('.next/static/**/*.{js,mjs,json,map}', {
+const files = await fg('.next/static/**/*', {
   cwd: appDir,
   absolute: true,
   onlyFiles: true,

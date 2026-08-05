@@ -4,7 +4,7 @@ import { defineConfig } from 'lume-cms/config';
 export default defineConfig({
   content: {
     root: 'content/docs',
-    include: ['content/docs/**/*.{md,mdx,json}'],
+    include: ['content/docs/**/*.{md,mdx}', 'content/docs/**/meta.json'],
     schema: v.looseObject({
       title: v.string(),
       description: v.optional(v.string()),

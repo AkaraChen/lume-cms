@@ -45,11 +45,13 @@ async function compileBody(source: string): Promise<CompiledBody> {
     remarkHeadingOptions: { generateToc: true },
     remarkImageOptions: { useImport: false },
   }));
+  const structuredData = file.data.structuredData;
+  if (!structuredData) throw new Error('Fumadocs mdxPreset did not produce structured data');
   return {
     markdown: source,
     code: String(file),
     toc: (file.data.toc ?? []) as CompiledBody['toc'],
-    structuredData: file.data.structuredData!,
+    structuredData,
   };
 }
 
@@ -78,12 +80,12 @@ async function validate(schema: ContentSchema, value: unknown, sourcePath: strin
   return result.value;
 }
 
-/** Fumadocs silently de-duplicates by these keys, so a collision must fail the build. */
-function assertUnique(values: string[], kind: string) {
+function assertUniqueSlugs(entries: CompiledEntry[]) {
   const seen = new Set<string>();
-  for (const value of values) {
-    if (seen.has(value)) throw new Error(`Duplicate ${kind}: ${value}`);
-    seen.add(value);
+  for (const entry of entries) {
+    const slug = entry.slug.join('/');
+    if (seen.has(slug)) throw new Error(`Duplicate content slug: ${slug}`);
+    seen.add(slug);
   }
 }
 
@@ -95,32 +97,13 @@ function parseJson(raw: string, sourcePath: string): unknown {
   }
 }
 
-/** A source file yields one candidate, except a JSON array which yields one per item. */
-function readCandidates(raw: string, sourcePath: string, isJson: boolean) {
-  if (!isJson) {
-    const parsed = frontmatter(raw);
-    return [{ data: parsed.data, markdown: parsed.content, suffix: undefined as number | undefined }];
-  }
-
-  const parsed = parseJson(raw, sourcePath);
-  const items = Array.isArray(parsed) ? parsed : [parsed];
-  return items.map((item, index) => {
-    if (!item || typeof item !== 'object' || Array.isArray(item)) {
-      throw new Error(`${sourcePath}: JSON content must be an object or an array of objects`);
-    }
-    const { body = '', ...data } = item as Record<string, unknown>;
-    if (typeof body !== 'string') throw new Error(`${sourcePath}: body must be a Markdown string`);
-    return { data: data as unknown, markdown: body, suffix: Array.isArray(parsed) ? index + 1 : undefined };
-  });
-}
-
 export async function compileContent(options: CompileOptions = {}): Promise<CompiledContent> {
   const cwd = path.resolve(options.cwd ?? process.cwd());
   const config = options.config ?? (await loadLumeConfig(cwd));
   const contentRoot = path.resolve(cwd, config.content?.root ?? 'content');
   const schema = config.content?.schema ?? defaultFrontmatterSchema;
   const metaSchema = config.content?.metaSchema ?? defaultMetaSchema;
-  const files = await fg(config.content?.include ?? ['content/**/*.{md,mdx,markdown,json}'], {
+  const files = await fg(config.content?.include ?? ['content/**/*.{md,mdx,markdown}', 'content/**/meta.json'], {
     cwd,
     ignore: config.content?.exclude,
     onlyFiles: true,
@@ -141,28 +124,23 @@ export async function compileContent(options: CompileOptions = {}): Promise<Comp
       metas.push({ path: contentPath, data });
       continue;
     }
+    if (isJson) throw new Error(`${sourcePath}: JSON content input is not supported; only meta.json is accepted`);
 
-    for (const candidate of readCandidates(raw, sourcePath, isJson)) {
-      const data = await validate(schema, candidate.data, sourcePath, 'frontmatter');
-      const slug = typeof data.slug === 'string'
-        ? data.slug.split('/').filter(Boolean)
-        : [...getSlugs(contentPath), ...(candidate.suffix ? [String(candidate.suffix)] : [])];
-      entries.push({
-        slug,
-        // Fumadocs addresses files by `path`, so every entry needs its own.
-        // A JSON array yields several entries from one file: number them apart.
-        path: candidate.suffix ? contentPath.replace(/(\.[^./]+)$/, `-${candidate.suffix}$1`) : contentPath,
-        ...parsePublishDate(data.publishDate, sourcePath),
-        draft: data.draft === true,
-        data,
-        body: await compileBody(candidate.markdown),
-      });
-    }
+    const parsed = frontmatter(raw);
+    const data = await validate(schema, parsed.data, sourcePath, 'frontmatter');
+    const slug = typeof data.slug === 'string' ? data.slug.split('/').filter(Boolean) : getSlugs(contentPath);
+    entries.push({
+      slug,
+      path: contentPath,
+      ...parsePublishDate(data.publishDate, sourcePath),
+      draft: data.draft === true,
+      data,
+      body: await compileBody(parsed.content),
+    });
   }
 
   entries.sort((a, b) => a.slug.join('/').localeCompare(b.slug.join('/')));
-  assertUnique(entries.map((entry) => entry.slug.join('/')), 'content slug');
-  assertUnique(entries.map((entry) => entry.path), 'content path');
+  assertUniqueSlugs(entries);
   metas.sort((a, b) => a.path.localeCompare(b.path));
 
   const content: CompiledContent = { schemaVersion: 1, entries, metas };

@@ -37,15 +37,13 @@ afterEach(async () => {
 });
 
 describe('compileContent', () => {
-  it('compiles frontmatter Markdown and JSON with a Valibot schema', async () => {
+  it('compiles frontmatter Markdown with a Valibot schema', async () => {
     const cwd = await fixture({
       'content/hello.md': '---\ntitle: Hello\npublishDate: 2026-09-01T10:00:00+08:00\n---\n# Heading\nBody',
-      'content/data.json': JSON.stringify({ title: 'JSON page', body: '# JSON body' }),
     });
     const result = await compileContent({ cwd, write: false });
-    expect(result.entries.map((item) => item.slug.join('/'))).toEqual(['data', 'hello']);
-    expect(result.entries[0]?.body.code).toContain('JSON body');
-    expect(result.entries[1]?.body.toc).toEqual([{ title: 'Heading', url: '#heading', depth: 1 }]);
+    expect(result.entries.map((item) => item.slug.join('/'))).toEqual(['hello']);
+    expect(result.entries[0]?.body.toc).toEqual([{ title: 'Heading', url: '#heading', depth: 1 }]);
   });
 
   it('compiles and renders MDX with frontmatter and components', async () => {
@@ -119,43 +117,6 @@ pnpm add lume-cms
     expect(result.entries[0]?.body.structuredData.headings[0]?.content).toBe('Search heading');
   });
 
-  it('keeps one addressable path per entry across object, array and custom-slug JSON', async () => {
-    const cwd = await fixture({
-      'content/single.json': JSON.stringify({ title: 'Single', body: '# Single' }),
-      'content/list.json': JSON.stringify([
-        { title: 'One', body: '# One' },
-        { title: 'Two', body: '# Two' },
-      ]),
-      'content/aliased.json': JSON.stringify([
-        { title: 'Alias A', slug: 'alias/a', body: '# A' },
-        { title: 'Alias B', slug: 'alias/b', body: '# B' },
-      ]),
-    });
-    const result = await compileContent({ cwd, write: false });
-
-    expect(result.entries.map((entry) => entry.slug.join('/'))).toEqual([
-      'alias/a', 'alias/b', 'list/1', 'list/2', 'single',
-    ]);
-    expect(result.entries.map((entry) => entry.path)).toEqual([
-      'aliased-1.json', 'aliased-2.json', 'list-1.json', 'list-2.json', 'single.json',
-    ]);
-
-    // Fumadocs stores files by path, so a shared path would silently drop pages.
-    const pages = (await createFumadocsSource(result).getSource()).getPages();
-    expect(new Set(pages.map((page) => page.path)).size).toBe(pages.length);
-    expect(pages).toHaveLength(5);
-  });
-
-  it('fails the build when two entries would claim the same path', async () => {
-    // `list.json` numbers its items into `list-1.json`, which a real `list-1.json`
-    // also claims. The slugs differ, so only the path check can catch this.
-    const cwd = await fixture({
-      'content/list.json': JSON.stringify([{ title: 'One', body: '# One' }]),
-      'content/list-1.json': JSON.stringify({ title: 'Collides', body: '# Collides' }),
-    });
-    await expect(compileContent({ cwd, write: false })).rejects.toThrow('Duplicate content path: list-1.json');
-  });
-
   it('uses an injected Valibot schema and reports the source path on failure', async () => {
     const cwd = await fixture({ 'content/bad.md': '---\ntitle: Bad\ncategory: nope\n---\nBody' });
     await expect(compileContent({
@@ -192,7 +153,7 @@ pnpm add lume-cms
     const result = await compileContent({
       cwd,
       write: false,
-      config: { content: { root: 'content/docs', include: ['content/docs/**/*.{mdx,json}'] } },
+      config: { content: { root: 'content/docs', include: ['content/docs/**/*.mdx', 'content/docs/**/meta.json'] } },
     });
     expect(result.entries[0]).toMatchObject({ slug: [], path: 'index.mdx' });
     expect(result.entries[0]?.body.structuredData.headings[0]?.content).toBe('Searchable heading');
@@ -202,6 +163,17 @@ pnpm add lume-cms
     expect(typeof page?.data.body).toBe('function');
     expect(page?.data.structuredData).toBeDefined();
     expect(source.getPageTree()).toBeDefined();
+  });
+
+  it('rejects JSON content while retaining meta.json navigation', async () => {
+    const cwd = await fixture({
+      'content/page.json': JSON.stringify({ title: 'Page', body: 'Body' }),
+    });
+    await expect(compileContent({
+      cwd,
+      write: false,
+      config: { content: { include: ['content/**/*.json'] } },
+    })).rejects.toThrow('JSON content input is not supported; only meta.json is accepted');
   });
 
   it('rejects invalid or offset-less dates', async () => {

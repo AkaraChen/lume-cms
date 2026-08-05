@@ -1,6 +1,6 @@
 # lume-cms
 
-`lume-cms` is a deliberately small content compiler and runtime source for Fumadocs. Authors write Markdown or MDX with frontmatter (or JSON), the CLI produces deterministic JSON, and one server-only source enforces scheduled visibility for pages, lists, navigation, RSS, sitemap, search, and other consumers.
+`lume-cms` is a deliberately small content compiler and runtime source for Fumadocs. Authors write Markdown or MDX with frontmatter, the CLI produces deterministic JSON, and one server-only source enforces scheduled visibility for pages, lists, navigation, RSS, sitemap, search, and other consumers.
 
 ## Install and configure
 
@@ -17,7 +17,7 @@ import { defineConfig } from 'lume-cms/config';
 export default defineConfig({
   content: {
     root: 'content',
-    include: ['content/**/*.{md,mdx,json}'],
+    include: ['content/**/*.{md,mdx}', 'content/**/meta.json'],
     schema: v.looseObject({
       title: v.string(),
       description: v.optional(v.string()),
@@ -31,7 +31,7 @@ export default defineConfig({
 
 The configuration accepts the Standard Schema interface. Valibot 1.x works directly as shown; Zod 4 and other conforming implementations can be used without an adapter. The built-in page schema includes Fumadocs' `title`, `description`, `icon`, and `full` fields plus lume's scheduling fields. A `meta.json` file is validated with the matching Fumadocs navigation fields and compiled as a metadata virtual file.
 
-Markdown and MDX use Fumadocs' public YAML frontmatter parser. JSON may be one object or an array of objects; its optional `body` field is Markdown. Both inputs go through Fumadocs' public `mdxPreset()`, matching the official starter baseline: GFM, heading IDs, images, code tabs, npm install blocks, Shiki code highlighting, structured search data, and table-of-contents extraction. The pipeline is not configurable. The compiler stores a deterministic MDX function body in JSON. Raw HTML in Markdown is deliberately discarded; do not enable `allowDangerousHtml`/`rehype-raw` without adding an explicit sanitization policy. Run `lume-cms build` to generate stable JSON. Entries and object keys are sorted, paths are relative, line endings are stable, and no timestamp or machine path is emitted.
+Markdown and MDX use Fumadocs' public YAML frontmatter parser and `mdxPreset()`, matching the official starter baseline: GFM, heading IDs, images, code tabs, npm install blocks, Shiki code highlighting, structured search data, and table-of-contents extraction. JSON is reserved for Fumadocs `meta.json` navigation files; it is not a page-content input. The pipeline is not configurable. The compiler stores a deterministic MDX function body in JSON. Raw HTML in Markdown is deliberately discarded; do not enable `allowDangerousHtml`/`rehype-raw` without adding an explicit sanitization policy. Run `lume-cms build` to generate stable JSON. Entries and object keys are sorted, paths are relative, line endings are stable, and no timestamp or machine path is emitted.
 
 The Fumadocs adapter exposes the compiled body as the React component expected by the official starter:
 
