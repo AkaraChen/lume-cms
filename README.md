@@ -108,7 +108,7 @@ The two official file layouts are supported for pages and `meta.json`:
 
 Unmarked dot files belong to `defaultLanguage`; `$` in the locale position shares a file across all languages, matching Fumadocs storage semantics. Compilation persists the normalized i18n config and each file's locale, derives slugs after removing the locale marker, and checks duplicate slugs per locale. Thus the same slug can exist in English and Chinese but still fails when duplicated within one language.
 
-Pass the same object at runtime to detect configuration drift (new artifacts can also use the persisted config without repeating it):
+Pass the same object at runtime to detect configuration drift (new artifacts can also use the persisted config without repeating it). Runtime configuration only confirms persisted i18n; it cannot enable i18n for an artifact compiled without it, because locale parsing and slugs are fixed during compilation:
 
 ```ts
 import content from './content.generated.json';

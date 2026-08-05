@@ -162,17 +162,22 @@ function resourcePath(cwd: string, sourcePath: string, pathname: string): string
   }
 }
 
-function absoluteSlug(
+function absoluteTarget(
   pathname: string,
   baseUrl: string,
-  locale: string,
+  sourceLocale: string,
   i18n?: CompiledI18nConfig,
-): string | undefined {
-  const root = i18nUrl(baseUrl, [], locale, i18n).replace(/\/+$/, '') || '/';
+): { locale: string; slug: string } | undefined {
   const normalized = pathname.replace(/\/+$/, '') || '/';
-  if (normalized === root) return '';
-  if (root === '/') return normalized.replace(/^\/+/, '');
-  if (normalized.startsWith(`${root}/`)) return normalized.slice(root.length + 1);
+  const locales = !i18n || i18n.hideLocale === 'always' ? [sourceLocale] : i18n.languages;
+  return locales
+    .map((locale) => ({ locale, root: i18nUrl(baseUrl, [], locale, i18n).replace(/\/+$/, '') || '/' }))
+    .filter(({ root }) => normalized === root || root === '/' || normalized.startsWith(`${root}/`))
+    .sort((a, b) => b.root.length - a.root.length)
+    .map(({ locale, root }) => ({
+      locale,
+      slug: normalized === root ? '' : root === '/' ? normalized.slice(1) : normalized.slice(root.length + 1),
+    }))[0];
 }
 
 function localizedLookup<T>(
@@ -246,9 +251,14 @@ export async function validateReferences(
       const pages = localizedSource.locales.map((locale) => {
         if (!pathname) return unit;
         if (pathname.startsWith('/')) {
-          const slug = absoluteSlug(pathname, baseUrl, locale, i18n);
-          if (slug !== undefined) {
-            return localizedLookup(bySlug, locale, slug ? normalizedVirtualPath(slug) : '', i18n);
+          const target = absoluteTarget(pathname, baseUrl, locale, i18n);
+          if (target) {
+            return localizedLookup(
+              bySlug,
+              target.locale,
+              target.slug ? normalizedVirtualPath(target.slug) : '',
+              i18n,
+            );
           }
           return;
         }

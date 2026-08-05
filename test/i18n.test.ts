@@ -193,4 +193,65 @@ describe('Fumadocs i18n source contract', () => {
       i18n: defineI18n({ languages: ['en', 'zh'], defaultLanguage: 'zh' }),
     })).toThrow(/Runtime i18n config does not match compiled i18n config/);
   });
+
+  it('rejects runtime i18n when the artifact was compiled without i18n', async () => {
+    const cwd = await fixture({
+      'content/page.zh.mdx': '---\ntitle: Page\n---\nPage',
+    });
+    const content = await compileContent({ cwd, write: false });
+
+    expect(content.collections.default?.i18n).toBeUndefined();
+    expect(content.collections.default?.entries[0]).toMatchObject({ locale: undefined, slug: ['page.zh'] });
+    expect(() => createFumadocsSource(content, {
+      i18n: defineI18n({ languages: ['en', 'zh'], defaultLanguage: 'en', parser: 'dot' }),
+    })).toThrow(/Runtime i18n requires compiled i18n config/);
+  });
+
+  it('resolves explicit cross-language absolute links when locale prefixes are never hidden', async () => {
+    const cwd = await fixture({
+      'content/index.mdx': '---\ntitle: English\n---\n[French](/fr/docs/guide)',
+      'content/index.fr.mdx': '---\ntitle: Français\n---\n[English](/en/docs/guide)',
+      'content/guide.mdx': '---\ntitle: Guide\n---\nGuide',
+      'content/guide.fr.mdx': '---\ntitle: Guide FR\n---\nGuide FR',
+    });
+    const i18n = defineI18n({
+      languages: ['en', 'fr'],
+      defaultLanguage: 'en',
+      hideLocale: 'never',
+      parser: 'dot',
+    });
+
+    const valid = await compileContent({
+      cwd, write: false, strict: true, config: { content: { baseUrl: '/docs', i18n } },
+    });
+    expect(valid.collections.default?.diagnostics).toEqual([]);
+
+    await writeFile(path.join(cwd, 'content/index.fr.mdx'), '---\ntitle: Français\n---\n[Missing](/en/docs/missing)');
+    const invalid = await compileContent({ cwd, write: false, config: { content: { baseUrl: '/docs', i18n } } });
+    expect(invalid.collections.default?.diagnostics).toMatchObject([{
+      code: 'missing-page',
+      sourcePath: 'content/index.fr.mdx',
+      target: '/en/docs/missing',
+    }]);
+  });
+
+  it('resolves cross-language absolute links when only the default locale prefix is hidden', async () => {
+    const cwd = await fixture({
+      'content/index.mdx': '---\ntitle: English\n---\n[French](/fr/docs/guide)',
+      'content/index.fr.mdx': '---\ntitle: Français\n---\n[English](/docs/guide)',
+      'content/guide.mdx': '---\ntitle: Guide\n---\nGuide',
+      'content/guide.fr.mdx': '---\ntitle: Guide FR\n---\nGuide FR',
+    });
+    const i18n = defineI18n({
+      languages: ['en', 'fr'],
+      defaultLanguage: 'en',
+      hideLocale: 'default-locale',
+      parser: 'dot',
+    });
+
+    const content = await compileContent({
+      cwd, write: false, strict: true, config: { content: { baseUrl: '/docs', i18n } },
+    });
+    expect(content.collections.default?.diagnostics).toEqual([]);
+  });
 });

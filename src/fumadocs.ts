@@ -112,10 +112,13 @@ function createCollectionSource<
   const baseUrl = compiledBaseUrl ?? fallbackBaseUrl ?? '/';
   const compiledI18n = compiled.i18n ? normalizeI18n(compiled.i18n) : undefined;
   const runtimeI18n = options.i18n ? normalizeI18n(options.i18n) : undefined;
+  if (!compiledI18n && runtimeI18n) {
+    throw new TypeError('Runtime i18n requires compiled i18n config');
+  }
   if (compiledI18n && runtimeI18n && JSON.stringify(compiledI18n) !== JSON.stringify(runtimeI18n)) {
     throw new TypeError(`Runtime i18n config does not match compiled i18n config for collection ${JSON.stringify(name)}`);
   }
-  const i18n = compiledI18n ?? runtimeI18n;
+  const i18n = compiledI18n;
 
   type SourceConfig = {
     pageData: LumePageData<Data & InferPluginData<Plugins>>;
