@@ -32,11 +32,23 @@ export interface CompiledMeta<Data extends MetaData = MetaData> {
   data: Data;
 }
 
+export interface CompileDiagnostic {
+  code: 'missing-page' | 'missing-anchor' | 'missing-resource';
+  severity: 'warning';
+  sourcePath: string;
+  line: number;
+  column: number;
+  target: string;
+  message: string;
+}
+
 export interface CompiledCollection<Data extends Record<string, unknown> = Record<string, unknown>> {
   plugins: string[];
   entries: CompiledEntry<Data>[];
   /** Optional for artifacts created before meta support. */
   metas?: CompiledMeta[];
+  /** Deterministic build diagnostics for this isolated collection. */
+  diagnostics?: CompileDiagnostic[];
 }
 
 export interface CompiledContent<Data extends Record<string, unknown> = Record<string, unknown>> {

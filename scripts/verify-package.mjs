@@ -1,4 +1,4 @@
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -67,6 +67,22 @@ try {
   if (!existsSync(path.join(fixture, 'content.generated.json'))) {
     throw new Error('Published CLI did not generate content.generated.json');
   }
+  writeFileSync(path.join(fixture, 'content/page.md'), '---\ntitle: Page\n---\n[Missing](./missing)');
+  const warningBuild = spawnSync(process.execPath, [path.resolve('bin/lume-cms.mjs'), 'build'], {
+    cwd: fixture,
+    encoding: 'utf8',
+  });
+  if (warningBuild.status !== 0 || !warningBuild.stderr.includes('"type":"lume-cms-diagnostic"')) {
+    throw new Error(`Non-strict build did not emit a structured warning:\n${warningBuild.stderr}`);
+  }
+  const strictBuild = spawnSync(process.execPath, [path.resolve('bin/lume-cms.mjs'), 'build', '--strict'], {
+    cwd: fixture,
+    encoding: 'utf8',
+  });
+  if (strictBuild.status === 0 || !strictBuild.stderr.includes('Content reference validation failed')) {
+    throw new Error(`Strict build did not fail with reference diagnostics:\n${strictBuild.stderr}`);
+  }
+  writeFileSync(path.join(fixture, 'content/page.md'), '---\ntitle: Page\n---\nBody');
   watchChild = spawn(process.execPath, [path.resolve('bin/lume-cms.mjs'), 'build', '--watch'], {
     cwd: fixture,
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -87,4 +103,4 @@ try {
   rmSync(fixture, { recursive: true, force: true });
 }
 
-console.log('Published CLI artifact, build command, and watch lifecycle verified.');
+console.log('Published CLI build, strict diagnostics, and watch lifecycle verified.');

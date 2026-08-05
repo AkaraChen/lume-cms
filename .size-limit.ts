@@ -30,11 +30,11 @@ export default [
   {
     name: 'cli (dist/cli.mjs)',
     path: 'dist/cli.mjs',
-    limit: '3.9 kB',
+    limit: '5.9 kB',
   },
   {
     name: 'published runtime total',
     path: ['dist/*.mjs', 'bin/*.mjs'],
-    limit: '7.3 kB',
+    limit: '9.3 kB',
   },
 ];

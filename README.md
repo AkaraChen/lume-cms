@@ -67,6 +67,10 @@ Keep process orchestration in the consuming app. For example, install `concurren
 
 `pnpm dev` then starts both processes and forwards Ctrl-C so both the content watcher and Next.js shut down together. `concurrently` belongs to the consuming app only; it is not a `lume-cms` runtime dependency.
 
+Every build also validates static content references and emits deterministic JSON diagnostics with a source path, line, column, target, and code. Missing content pages, heading anchors, Markdown images, literal MDX `<img src>` values, and linked local assets are warnings by default, so the output is still written; use `lume-cms build --strict` (with or without `--watch`) to fail the build and preserve the last successful output. Relative page and asset paths resolve from the authoring file. Absolute asset paths resolve from `public/`, matching Fumadocs `remarkImage({ useImport: false })` URL semantics. HTTP(S), protocol, code-block, and dynamic JSX-expression targets are not fetched or guessed; literal Markdown reference links and literal `<a href>` values are checked.
+
+Reference validation uses the complete compiled graph, including draft and scheduled entries. A visible page may therefore link to a real hidden entry without producing a false “missing page” diagnostic, while broken links originating inside draft or future content are still reported. This static graph does not expose hidden entries: all runtime consumers continue to use the single deadline-aware visibility predicate.
+
 The Fumadocs adapter exposes the compiled body as the React component expected by the official starter:
 
 ```tsx

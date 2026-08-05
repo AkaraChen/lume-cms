@@ -1,26 +1,45 @@
 #!/usr/bin/env node
-import { compileContent } from './compile.js';
+import { CompileDiagnosticsError, compileContent } from './compile.js';
 import { watchContent } from './watch.js';
+import type { CompileDiagnostic } from './types.js';
+
+function reportDiagnostics(diagnostics: CompileDiagnostic[]) {
+  for (const diagnostic of diagnostics) {
+    console.warn(JSON.stringify({ type: 'lume-cms-diagnostic', ...diagnostic }));
+  }
+  if (diagnostics.length > 0) console.warn(`Found ${diagnostics.length} content reference warning${diagnostics.length === 1 ? '' : 's'}.`);
+}
+
+function reportError(error: unknown) {
+  if (error instanceof CompileDiagnosticsError) reportDiagnostics(error.diagnostics);
+  console.error(error instanceof Error ? error.message : error);
+}
 
 async function main() {
   const args = process.argv.slice(2);
   const command = args[0] ?? 'build';
-  const watch = args[1] === '--watch';
-  if (command !== 'build' || args.length > (watch ? 2 : 1)) {
-    throw new Error('Usage: lume-cms build [--watch]');
+  const flags = args.slice(1);
+  const uniqueFlags = new Set(flags);
+  if (
+    command !== 'build'
+    || uniqueFlags.size !== flags.length
+    || flags.some((flag) => flag !== '--watch' && flag !== '--strict')
+  ) {
+    throw new Error('Usage: lume-cms build [--watch] [--strict]');
   }
-  if (watch) {
+  const strict = uniqueFlags.has('--strict');
+  if (uniqueFlags.has('--watch')) {
     const watcher = await watchContent({
+      strict,
       onBuild({ content, stats }) {
         const entryCount = Object.values(content.collections)
           .reduce((total, collection) => total + collection.entries.length, 0);
+        reportDiagnostics(Object.values(content.collections).flatMap((collection) => collection.diagnostics ?? []));
         console.log(
           `Compiled ${entryCount} content entries (${stats.compiledEntries} rebuilt, ${stats.cachedEntries} cached).`,
         );
       },
-      onError(error) {
-        console.error(error instanceof Error ? error.message : error);
-      },
+      onError: reportError,
     });
     console.log('Watching for content and configuration changes.');
     const close = () => { void watcher.close(); };
@@ -28,12 +47,13 @@ async function main() {
     process.once('SIGTERM', close);
     return;
   }
-  const content = await compileContent();
+  const content = await compileContent({ strict });
+  reportDiagnostics(Object.values(content.collections).flatMap((collection) => collection.diagnostics ?? []));
   const counts = Object.entries(content.collections).map(([name, collection]) => `${name}: ${collection.entries.length}`);
   console.log(`Compiled ${counts.join(', ')}.`);
 }
 
 main().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : error);
+  reportError(error);
   process.exitCode = 1;
 });
