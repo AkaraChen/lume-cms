@@ -1,4 +1,5 @@
 import { readFile, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { compile as compileMdx } from '@mdx-js/mdx';
 import fg from 'fast-glob';
@@ -12,12 +13,67 @@ import {
   type LumeConfig,
 } from './config.js';
 import type { CompiledBody, CompiledCollection, CompiledContent, CompiledEntry, CompiledMeta } from './types.js';
-import { assertPluginIds } from './plugin.js';
+import { assertPluginIds, type AnyLumePlugin } from './plugin.js';
 
 export interface CompileOptions {
   cwd?: string;
   config?: LumeConfig;
+  cache?: CompileCache;
   write?: boolean;
+}
+
+interface CachedEntry {
+  digest: string;
+  value: CompiledEntry;
+}
+
+interface CachedMeta {
+  digest: string;
+  value: CompiledMeta;
+}
+
+export interface CompileStats {
+  cachedEntries: number;
+  compiledEntries: number;
+}
+
+export class CompileCache {
+  private fingerprint = '';
+  private readonly entries = new Map<string, CachedEntry>();
+  private readonly metas = new Map<string, CachedMeta>();
+  stats: CompileStats = { cachedEntries: 0, compiledEntries: 0 };
+
+  prepare(fingerprint: string) {
+    if (this.fingerprint === fingerprint) return;
+    this.fingerprint = fingerprint;
+    this.entries.clear();
+    this.metas.clear();
+  }
+
+  getEntry(path: string, digest: string): CompiledEntry | undefined {
+    const cached = this.entries.get(path);
+    if (cached?.digest !== digest) return;
+    return structuredClone(cached.value);
+  }
+
+  setEntry(path: string, digest: string, value: CompiledEntry) {
+    this.entries.set(path, { digest, value: structuredClone(value) });
+  }
+
+  getMeta(path: string, digest: string): CompiledMeta | undefined {
+    const cached = this.metas.get(path);
+    if (cached?.digest !== digest) return;
+    return structuredClone(cached.value);
+  }
+
+  setMeta(path: string, digest: string, value: CompiledMeta) {
+    this.metas.set(path, { digest, value: structuredClone(value) });
+  }
+
+  prune(entryPaths: Set<string>, metaPaths: Set<string>) {
+    for (const path of this.entries.keys()) if (!entryPaths.has(path)) this.entries.delete(path);
+    for (const path of this.metas.keys()) if (!metaPaths.has(path)) this.metas.delete(path);
+  }
 }
 
 async function compileBody(source: string): Promise<CompiledBody> {
@@ -47,6 +103,45 @@ function stableValue(value: unknown): unknown {
     );
   }
   return value;
+}
+
+function fingerprintValue(value: unknown, seen = new Map<object, number>()): unknown {
+  if (typeof value === 'function') return { $function: Function.prototype.toString.call(value) };
+  if (typeof value === 'bigint') return { $bigint: value.toString() };
+  if (typeof value === 'symbol') return { $symbol: String(value) };
+  if (!value || typeof value !== 'object') return value;
+
+  const existing = seen.get(value);
+  if (existing !== undefined) return { $ref: existing };
+  seen.set(value, seen.size);
+  if (value instanceof Date) return { $date: value.toISOString() };
+  if (value instanceof RegExp) return { $regexp: value.toString() };
+  if (value instanceof Map) {
+    return {
+      $map: [...value.entries()]
+        .map(([key, item]) => [fingerprintValue(key, seen), fingerprintValue(item, seen)])
+        .sort(([a], [b]) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
+    };
+  }
+  if (value instanceof Set) {
+    return {
+      $set: [...value]
+        .map((item) => fingerprintValue(item, seen))
+        .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
+    };
+  }
+  if (Array.isArray(value)) return value.map((item) => fingerprintValue(item, seen));
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, item]) => [key, fingerprintValue(item, seen)]),
+  );
+}
+
+function digest(...values: string[]): string {
+  const hash = createHash('sha256');
+  for (const value of values) hash.update(value).update('\0');
+  return hash.digest('hex');
 }
 
 export function serializeCompiledContent(content: CompiledContent): string {
@@ -142,13 +237,66 @@ function parseMeta(raw: string, sourcePath: string): CompiledMeta['data'] {
   return value as CompiledMeta['data'];
 }
 
+async function compileEntry(
+  raw: string,
+  sourcePath: string,
+  contentPath: string,
+  schema: ContentSchema,
+  plugins: readonly AnyLumePlugin[],
+): Promise<CompiledEntry> {
+  const parsed = frontmatter(raw);
+  const data = { ...await validate(schema, parsed.data, sourcePath, 'frontmatter') };
+  const slug = typeof data.slug === 'string' ? data.slug.split('/').filter(Boolean) : getSlugs(contentPath);
+  const ext: Record<string, unknown> = {};
+  for (const plugin of plugins) {
+    let pluginFrontmatter: Record<string, unknown> = {};
+    if (plugin.frontmatter) {
+      pluginFrontmatter = await validate(
+        plugin.frontmatter.schema,
+        parsed.data,
+        sourcePath,
+        `${plugin.id} plugin frontmatter`,
+      );
+      for (const key of Object.keys(pluginFrontmatter)) delete data[key];
+    }
+    if (plugin.compile?.entry) {
+      ext[plugin.id] = await plugin.compile.entry({
+        sourcePath,
+        contentPath,
+        slug,
+        frontmatter: pluginFrontmatter,
+        rawFrontmatter: parsed.data as Record<string, unknown>,
+      });
+    }
+  }
+  return {
+    slug,
+    path: contentPath,
+    draft: data.draft === true,
+    data,
+    ext,
+    body: await compileBody(parsed.content),
+  };
+}
+
 export async function compileContent(options: CompileOptions = {}): Promise<CompiledContent> {
   const cwd = path.resolve(options.cwd ?? process.cwd());
   const config = options.config ?? (await loadLumeConfig(cwd));
   const configured = normalizedCollections(config);
   const files = await collectionFiles(cwd, configured);
   const collections: Record<string, CompiledCollection> = {};
+  const fingerprint = digest('lume-cms-compile-cache-v1', JSON.stringify(fingerprintValue({
+    collections: configured,
+    plugins: config.plugins,
+  })));
+  const cache = options.cache;
+  cache?.prepare(fingerprint);
   const pluginContext = { cwd, config };
+  const entryPaths = new Set<string>();
+  const metaPaths = new Set<string>();
+  let cachedEntries = 0;
+  let compiledEntries = 0;
+
   for (const name of Object.keys(configured).sort()) {
     const definition = configured[name]!;
     const contentRoot = path.resolve(cwd, definition.root ?? 'content');
@@ -161,44 +309,31 @@ export async function compileContent(options: CompileOptions = {}): Promise<Comp
 
     for (const sourcePath of files.get(name)!.metas) {
       const absolutePath = path.resolve(cwd, sourcePath);
-      metas.push({
+      const raw = await readFile(absolutePath, 'utf8');
+      const fileDigest = digest(fingerprint, name, sourcePath, raw);
+      const meta = cache?.getMeta(sourcePath, fileDigest) ?? {
         path: relativeContentPath(contentRoot, absolutePath),
-        data: parseMeta(await readFile(absolutePath, 'utf8'), sourcePath),
-      });
+        data: parseMeta(raw, sourcePath),
+      };
+      cache?.setMeta(sourcePath, fileDigest, meta);
+      metaPaths.add(sourcePath);
+      metas.push(meta);
     }
 
     for (const sourcePath of files.get(name)!.pages) {
       const absolutePath = path.resolve(cwd, sourcePath);
-      const contentPath = path.relative(contentRoot, absolutePath).replace(/\\/g, '/');
+      const contentPath = relativeContentPath(contentRoot, absolutePath);
       const raw = await readFile(absolutePath, 'utf8');
-      const parsed = frontmatter(raw);
-      const data = { ...await validate(schema, parsed.data, sourcePath, 'frontmatter') };
-      const slug = typeof data.slug === 'string' ? data.slug.split('/').filter(Boolean) : getSlugs(contentPath);
-      const ext: Record<string, unknown> = {};
-      for (const plugin of plugins) {
-        let pluginFrontmatter: Record<string, unknown> = {};
-        if (plugin.frontmatter) {
-          pluginFrontmatter = await validate(plugin.frontmatter.schema, parsed.data, sourcePath, `${plugin.id} plugin frontmatter`);
-          for (const key of Object.keys(pluginFrontmatter)) delete data[key];
-        }
-        if (plugin.compile?.entry) {
-          ext[plugin.id] = await plugin.compile.entry({
-            sourcePath,
-            contentPath,
-            slug,
-            frontmatter: pluginFrontmatter,
-            rawFrontmatter: parsed.data as Record<string, unknown>,
-          });
-        }
+      const fileDigest = digest(fingerprint, name, sourcePath, raw);
+      let entry = cache?.getEntry(sourcePath, fileDigest);
+      if (entry) cachedEntries += 1;
+      else {
+        entry = await compileEntry(raw, sourcePath, contentPath, schema, plugins);
+        cache?.setEntry(sourcePath, fileDigest, entry);
+        compiledEntries += 1;
       }
-      entries.push({
-        slug,
-        path: contentPath,
-        draft: data.draft === true,
-        data,
-        ext,
-        body: await compileBody(parsed.content),
-      });
+      entryPaths.add(sourcePath);
+      entries.push(entry);
     }
 
     entries.sort((a, b) => a.slug.join('/').localeCompare(b.slug.join('/')));
@@ -208,6 +343,8 @@ export async function compileContent(options: CompileOptions = {}): Promise<Comp
   }
 
   const content: CompiledContent = { schemaVersion: 3, collections };
+  cache?.prune(entryPaths, metaPaths);
+  if (cache) cache.stats = { cachedEntries, compiledEntries };
   if (options.write !== false) {
     await writeFile(path.resolve(cwd, config.output ?? 'content.generated.json'), serializeCompiledContent(content), 'utf8');
   }

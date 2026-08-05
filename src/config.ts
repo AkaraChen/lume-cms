@@ -47,6 +47,7 @@ export async function loadLumeConfig(cwd = process.cwd()): Promise<LumeConfig> {
     cwd,
     configFile: 'lume.config',
     defaults: {},
+    jitiOptions: { moduleCache: false },
   });
   return loaded.config;
 }
