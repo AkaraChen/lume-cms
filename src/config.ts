@@ -13,17 +13,6 @@ export const defaultFrontmatterSchema = v.looseObject({
   tags: v.optional(v.array(v.string())),
 });
 
-export const defaultMetaSchema = v.looseObject({
-  title: v.optional(v.string()),
-  pages: v.optional(v.array(v.string())),
-  pagesIndex: v.optional(v.string()),
-  description: v.optional(v.string()),
-  root: v.optional(v.boolean()),
-  defaultOpen: v.optional(v.boolean()),
-  collapsible: v.optional(v.boolean()),
-  icon: v.optional(v.string()),
-});
-
 export type ContentSchema = StandardSchemaV1<unknown, Record<string, unknown>>;
 
 export interface LumeConfig {
@@ -33,7 +22,6 @@ export interface LumeConfig {
     root?: string;
     /** Any Standard Schema implementation, including Valibot 1 and Zod 4. */
     schema?: ContentSchema;
-    metaSchema?: ContentSchema;
   };
   output?: string;
 }

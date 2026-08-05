@@ -15,12 +15,6 @@ export interface CompiledBody {
   structuredData: StructuredData;
 }
 
-export interface CompiledMeta<Data extends Record<string, unknown> = Record<string, unknown>> {
-  /** Path relative to the content root, the way Fumadocs addresses files. */
-  path: string;
-  data: Data;
-}
-
 export interface CompiledEntry<Data extends Record<string, unknown> = Record<string, unknown>> {
   slug: string[];
   /** Path relative to the content root, the way Fumadocs addresses files. */
@@ -35,5 +29,4 @@ export interface CompiledEntry<Data extends Record<string, unknown> = Record<str
 export interface CompiledContent<Data extends Record<string, unknown> = Record<string, unknown>> {
   schemaVersion: 1;
   entries: CompiledEntry<Data>[];
-  metas?: CompiledMeta[];
 }

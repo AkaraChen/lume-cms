@@ -28,7 +28,7 @@ In the project, you can see:
 | `app/docs`                | The documentation layout and pages.                    |
 | `app/api/search/route.ts` | The Route Handler for search.                          |
 
-Run `lume-cms build` before Next.js starts to compile Markdown, MDX, and metadata into `content.generated.json`.
+Run `lume-cms build` before Next.js starts to compile Markdown and MDX into `content.generated.json`.
 
 ## Learn More
 

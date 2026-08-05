@@ -7,12 +7,11 @@ import { mdxPreset } from 'fumadocs-core/content/mdx/preset-runtime';
 import { getSlugs } from 'fumadocs-core/source';
 import {
   defaultFrontmatterSchema,
-  defaultMetaSchema,
   loadLumeConfig,
   type ContentSchema,
   type LumeConfig,
 } from './config.js';
-import type { CompiledBody, CompiledContent, CompiledEntry, CompiledMeta } from './types.js';
+import type { CompiledBody, CompiledContent, CompiledEntry } from './types.js';
 
 const OFFSET_DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/;
 
@@ -89,21 +88,12 @@ function assertUniqueSlugs(entries: CompiledEntry[]) {
   }
 }
 
-function parseJson(raw: string, sourcePath: string): unknown {
-  try {
-    return JSON.parse(raw);
-  } catch (error) {
-    throw new Error(`${sourcePath}: invalid JSON: ${(error as Error).message}`);
-  }
-}
-
 export async function compileContent(options: CompileOptions = {}): Promise<CompiledContent> {
   const cwd = path.resolve(options.cwd ?? process.cwd());
   const config = options.config ?? (await loadLumeConfig(cwd));
   const contentRoot = path.resolve(cwd, config.content?.root ?? 'content');
   const schema = config.content?.schema ?? defaultFrontmatterSchema;
-  const metaSchema = config.content?.metaSchema ?? defaultMetaSchema;
-  const files = await fg(config.content?.include ?? ['content/**/*.{md,mdx,markdown}', 'content/**/meta.json'], {
+  const files = await fg(config.content?.include ?? ['content/**/*.{md,mdx,markdown}'], {
     cwd,
     ignore: config.content?.exclude,
     onlyFiles: true,
@@ -111,21 +101,11 @@ export async function compileContent(options: CompileOptions = {}): Promise<Comp
   });
 
   const entries: CompiledEntry[] = [];
-  const metas: CompiledMeta[] = [];
 
   for (const sourcePath of files.sort()) {
     const absolutePath = path.resolve(cwd, sourcePath);
     const contentPath = path.relative(contentRoot, absolutePath).replace(/\\/g, '/');
     const raw = await readFile(absolutePath, 'utf8');
-    const isJson = path.extname(sourcePath).toLowerCase() === '.json';
-
-    if (isJson && path.basename(sourcePath).toLowerCase() === 'meta.json') {
-      const data = await validate(metaSchema, parseJson(raw, sourcePath), sourcePath, 'metadata');
-      metas.push({ path: contentPath, data });
-      continue;
-    }
-    if (isJson) throw new Error(`${sourcePath}: JSON content input is not supported; only meta.json is accepted`);
-
     const parsed = frontmatter(raw);
     const data = await validate(schema, parsed.data, sourcePath, 'frontmatter');
     const slug = typeof data.slug === 'string' ? data.slug.split('/').filter(Boolean) : getSlugs(contentPath);
@@ -141,9 +121,8 @@ export async function compileContent(options: CompileOptions = {}): Promise<Comp
 
   entries.sort((a, b) => a.slug.join('/').localeCompare(b.slug.join('/')));
   assertUniqueSlugs(entries);
-  metas.sort((a, b) => a.path.localeCompare(b.path));
 
-  const content: CompiledContent = { schemaVersion: 1, entries, metas };
+  const content: CompiledContent = { schemaVersion: 1, entries };
   if (options.write !== false) {
     await writeFile(path.resolve(cwd, config.output ?? 'content.generated.json'), serializeCompiledContent(content), 'utf8');
   }
