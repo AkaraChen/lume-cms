@@ -4,7 +4,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { compileContent, serializeCompiledContent } from '../src/compile.js';
 import { defineI18n } from '../src/config.js';
-import { createFumadocsSource } from '../src/fumadocs.js';
+import { createFumadocsSource } from '../src/index.js';
 import { schedule } from '../src/schedule.js';
 
 const dirs: string[] = [];

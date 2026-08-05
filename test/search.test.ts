@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createFromSource, type AdvancedIndex } from 'fumadocs-core/search/server';
-import { createFumadocsSource } from '../src/fumadocs.js';
+import { createFumadocsSource } from '../src/index.js';
 import type { AnyLumePlugin, Next, ResolvedEntry, RuntimeContext } from '../src/plugin.js';
 import { schedule } from '../src/schedule.js';
 import type { CompiledContent, CompiledEntry } from '../src/types.js';

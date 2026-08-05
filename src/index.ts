@@ -127,6 +127,14 @@ interface FumadocsSourcesOptions<Collections extends Record<string, FumadocsColl
   collections: Collections;
 }
 
+function createClock(now: () => Date = () => new Date()) {
+  return () => {
+    const value = now().getTime();
+    if (!Number.isFinite(value)) throw new TypeError('The injected clock returned an invalid Date');
+    return value;
+  };
+}
+
 export interface FumadocsSourceOptions<
   Data extends Record<string, unknown> = Record<string, unknown>,
   Plugins extends readonly AnyLumePlugin[] = [],
@@ -423,12 +431,7 @@ export function createFumadocsSources<
     baseUrls.set(baseUrl, name);
   }
 
-  const now = options.now ?? (() => new Date());
-  function currentTime() {
-    const value = now().getTime();
-    if (!Number.isFinite(value)) throw new TypeError('The injected clock returned an invalid Date');
-    return value;
-  }
+  const currentTime = createClock(options.now);
 
   const sources = Object.fromEntries(runtimeNames.map((name) => [
     name,
@@ -456,7 +459,7 @@ export function createFumadocsSources<
   return { sources, getAllSources, getAllPages };
 }
 
-/** Backward-compatible single-collection facade. */
+/** First-class source factory for a compiled artifact containing one collection. */
 export function createFumadocsSource<
   const Content extends CompiledContent,
   const Plugins extends readonly AnyLumePlugin[] = [],
@@ -474,10 +477,5 @@ export function createFumadocsSource<
   }
   const name = names[0]!;
   const compiled = content.collections[name]! as InferSingleCollection<Content>;
-  const now = options.now ?? (() => new Date());
-  return createCollectionSource(name, compiled, options, () => {
-    const value = now().getTime();
-    if (!Number.isFinite(value)) throw new TypeError('The injected clock returned an invalid Date');
-    return value;
-  });
+  return createCollectionSource(name, compiled, options, createClock(options.now));
 }

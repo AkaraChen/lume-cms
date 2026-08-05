@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { CompileCache, compileContent, serializeCompiledContent } from '../src/compile.js';
-import { createFumadocsSource } from '../src/fumadocs.js';
+import { createFumadocsSource } from '../src/index.js';
 import { schedule } from '../src/schedule.js';
 
 const dirs: string[] = [];

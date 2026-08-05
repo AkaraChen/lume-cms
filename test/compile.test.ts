@@ -9,7 +9,7 @@ import { z } from 'zod';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import { CompileCache, compileContent, serializeCompiledContent } from '../src/compile.js';
 import { defaultMetaSchema, defaultPageSchema } from '../src/config.js';
-import { createFumadocsSource } from '../src/fumadocs.js';
+import { createFumadocsSource } from '../src/index.js';
 import { schedule } from '../src/schedule.js';
 import {
   definePlugin,
@@ -591,5 +591,16 @@ Body`,
       (item) => (item.ext.probe as { cacheKey: string }).cacheKey === 'v2',
     )).toBe(true);
     expect(collectionCalls).toBe(6);
+  });
+
+  it('fingerprints cyclic plugin options without changing compiled serialization', async () => {
+    const cwd = await fixture({ 'content/page.md': '---\ntitle: Page\n---\nBody' });
+    const options: Record<string, unknown> = { mode: 'cyclic' };
+    options.self = options;
+    const plugin = definePlugin({ id: 'cyclic', options });
+
+    const first = await compileContent({ cwd, write: false, config: { plugins: [plugin] } });
+    const second = await compileContent({ cwd, write: false, config: { plugins: [plugin] } });
+    expect(serializeCompiledContent(first)).toBe(serializeCompiledContent(second));
   });
 });
