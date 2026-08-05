@@ -1,5 +1,6 @@
 import type { StructuredData } from 'fumadocs-core/mdx-plugins';
 import type { MetaData } from 'fumadocs-core/source';
+import type { CompiledI18nConfig } from './i18n.js';
 
 export interface TocItem {
   title: string;
@@ -18,6 +19,8 @@ export interface CompiledBody {
 
 export interface CompiledEntry<Data extends Record<string, unknown> = Record<string, unknown>> {
   slug: string[];
+  /** Concrete locale, or `$` for a file shared across every configured language. */
+  locale?: string;
   /** Path relative to the content root, the way Fumadocs addresses files. */
   path: string;
   draft: boolean;
@@ -27,6 +30,8 @@ export interface CompiledEntry<Data extends Record<string, unknown> = Record<str
 }
 
 export interface CompiledMeta<Data extends MetaData = MetaData> {
+  /** Concrete locale, or `$` for a file shared across every configured language. */
+  locale?: string;
   /** Path relative to the content root, including the `meta.json` filename. */
   path: string;
   data: Data;
@@ -45,6 +50,8 @@ export interface CompileDiagnostic {
 export interface CompiledCollection<Data extends Record<string, unknown> = Record<string, unknown>> {
   /** Public route prefix used by diagnostics and the matching Fumadocs loader. */
   baseUrl?: string;
+  /** Optional for backwards compatibility; present when compilation used Fumadocs i18n. */
+  i18n?: CompiledI18nConfig;
   plugins: string[];
   entries: CompiledEntry<Data>[];
   /** Optional for artifacts created before meta support. */

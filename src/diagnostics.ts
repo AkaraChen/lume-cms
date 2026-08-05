@@ -2,6 +2,12 @@ import { stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { CompiledEntry, CompileDiagnostic } from './types.js';
+import {
+  i18nUrl,
+  localePathKey,
+  parseI18nPath,
+  type CompiledI18nConfig,
+} from './i18n.js';
 
 export interface ExtractedReference {
   kind: 'link' | 'image';
@@ -156,10 +162,34 @@ function resourcePath(cwd: string, sourcePath: string, pathname: string): string
   }
 }
 
-function withoutBaseUrl(pathname: string, baseUrl: string): string {
-  if (!pathname.startsWith('/') || baseUrl === '/') return pathname;
-  if (pathname === baseUrl || pathname === `${baseUrl}/`) return '/';
-  return pathname.startsWith(`${baseUrl}/`) ? pathname.slice(baseUrl.length) : pathname;
+function absoluteTarget(
+  pathname: string,
+  baseUrl: string,
+  sourceLocale: string,
+  i18n?: CompiledI18nConfig,
+): { locale: string; slug: string } | undefined {
+  const normalized = pathname.replace(/\/+$/, '') || '/';
+  const locales = !i18n || i18n.hideLocale === 'always' ? [sourceLocale] : i18n.languages;
+  return locales
+    .map((locale) => ({ locale, root: i18nUrl(baseUrl, [], locale, i18n).replace(/\/+$/, '') || '/' }))
+    .filter(({ root }) => normalized === root || root === '/' || normalized.startsWith(`${root}/`))
+    .sort((a, b) => b.root.length - a.root.length)
+    .map(({ locale, root }) => ({
+      locale,
+      slug: normalized === root ? '' : root === '/' ? normalized.slice(1) : normalized.slice(root.length + 1),
+    }))[0];
+}
+
+function localizedLookup<T>(
+  map: Map<string, T>,
+  locale: string,
+  value: string,
+  i18n?: CompiledI18nConfig,
+): T | undefined {
+  return map.get(localePathKey(locale, value))
+    ?? (i18n?.fallbackLanguage && i18n.fallbackLanguage !== locale
+      ? map.get(localePathKey(i18n.fallbackLanguage, value))
+      : undefined);
 }
 
 function diagnostic(
@@ -183,15 +213,19 @@ export async function validateReferences(
   cwd: string,
   units: ReferenceEntry[],
   baseUrl = '/',
+  i18n?: CompiledI18nConfig,
 ): Promise<CompileDiagnostic[]> {
   const bySlug = new Map<string, ReferenceEntry>();
   const byPath = new Map<string, ReferenceEntry>();
   const byStem = new Map<string, ReferenceEntry>();
   for (const unit of units) {
-    bySlug.set(unit.entry.slug.join('/'), unit);
-    const virtualPath = normalizedVirtualPath(unit.entry.path);
-    byPath.set(virtualPath, unit);
-    byStem.set(stem(virtualPath), unit);
+    const localizedPath = parseI18nPath(unit.entry.path, i18n);
+    for (const locale of localizedPath.locales) {
+      bySlug.set(localePathKey(locale, unit.entry.slug.join('/')), unit);
+      const virtualPath = normalizedVirtualPath(localizedPath.path);
+      byPath.set(localePathKey(locale, virtualPath), unit);
+      byStem.set(localePathKey(locale, stem(virtualPath)), unit);
+    }
   }
 
   const diagnostics: CompileDiagnostic[] = [];
@@ -213,28 +247,34 @@ export async function validateReferences(
         continue;
       }
 
-      const pagePathname = withoutBaseUrl(pathname, baseUrl);
-      let page: ReferenceEntry | undefined;
-      if (!pagePathname) page = unit;
-      else if (pagePathname === '/') page = bySlug.get('');
-      else {
-        const absolute = pagePathname.startsWith('/');
-        const extension = path.posix.extname(pagePathname).toLowerCase();
-        const baseDir = path.posix.dirname(normalizedVirtualPath(unit.entry.path));
-        const virtualTarget = normalizedVirtualPath(
-          absolute ? pagePathname : path.posix.join(baseDir, pagePathname),
-        );
-        if (contentExtensions.has(extension)) page = byPath.get(virtualTarget);
-        else {
-          page = byStem.get(stem(virtualTarget));
-          if (!page) {
-            const slugTarget = absolute ? normalizedVirtualPath(pagePathname) : stem(virtualTarget);
-            page = bySlug.get(slugTarget);
+      const localizedSource = parseI18nPath(unit.entry.path, i18n);
+      const pages = localizedSource.locales.map((locale) => {
+        if (!pathname) return unit;
+        if (pathname.startsWith('/')) {
+          const target = absoluteTarget(pathname, baseUrl, locale, i18n);
+          if (target) {
+            return localizedLookup(
+              bySlug,
+              target.locale,
+              target.slug ? normalizedVirtualPath(target.slug) : '',
+              i18n,
+            );
           }
+          return;
         }
-      }
-      if (!page) {
-        const possibleResource = resourcePath(cwd, unit.sourcePath, pathname);
+        const extension = path.posix.extname(pathname).toLowerCase();
+        const baseDir = path.posix.dirname(normalizedVirtualPath(localizedSource.path));
+        const virtualTarget = normalizedVirtualPath(
+          path.posix.join(baseDir, pathname),
+        );
+        if (contentExtensions.has(extension)) return localizedLookup(byPath, locale, virtualTarget, i18n);
+        return localizedLookup(byStem, locale, stem(virtualTarget), i18n)
+          ?? localizedLookup(bySlug, locale, stem(virtualTarget), i18n);
+      });
+      if (pages.some((page) => !page)) {
+        const possibleResource = contentExtensions.has(path.posix.extname(pathname).toLowerCase())
+          ? undefined
+          : resourcePath(cwd, unit.sourcePath, pathname);
         if (possibleResource && await isFile(possibleResource)) continue;
         if (pathname !== '/') {
           diagnostics.push(diagnostic(
@@ -254,11 +294,14 @@ export async function validateReferences(
             return value;
           }
         };
-        const anchors = new Set([
-          ...page.entry.body.toc.map((item) => normalizeAnchor(item.url.replace(/^#/, ''))),
-          ...page.anchors,
-        ]);
-        if (!anchors.has(normalizeAnchor(hash))) {
+        const page = pages.find((candidate) => {
+          const anchors = new Set([
+            ...candidate!.entry.body.toc.map((item) => normalizeAnchor(item.url.replace(/^#/, ''))),
+            ...candidate!.anchors,
+          ]);
+          return !anchors.has(normalizeAnchor(hash));
+        });
+        if (page) {
           diagnostics.push(diagnostic(
             'missing-anchor',
             unit.sourcePath,

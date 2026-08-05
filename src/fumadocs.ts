@@ -3,11 +3,13 @@ import 'server-only';
 import { run } from '@mdx-js/mdx';
 import { dynamicLoader } from 'fumadocs-core/source/dynamic';
 import type { DynamicSource, LoaderPluginOption, MetaData } from 'fumadocs-core/source';
+import type { I18nConfig } from 'fumadocs-core/i18n';
 import { createElement, type ComponentType } from 'react';
 import * as runtime from 'react/jsx-runtime';
 import type { CompiledBody, CompiledCollection, CompiledContent, CompiledEntry } from './types.js';
 import { assertPluginIds, type AnyLumePlugin, type InferPluginData } from './plugin.js';
 import { normalizeBaseUrl } from './url.js';
+import { normalizeI18n } from './i18n.js';
 
 type BodyComponent = ComponentType<{ components?: Record<string, unknown> }>;
 
@@ -16,6 +18,8 @@ export type { CompiledContent } from './types.js';
 export interface FumadocsCollectionOptions<Plugins extends readonly AnyLumePlugin[] = readonly AnyLumePlugin[]> {
   /** Compatibility fallback for schema v2 output created before baseUrl was persisted. */
   baseUrl?: string;
+  /** Official Fumadocs config; checked against the compiled i18n contract when both are present. */
+  i18n?: I18nConfig;
   plugins?: Plugins;
   loaderPlugins?: LoaderPluginOption[];
 }
@@ -106,6 +110,15 @@ function createCollectionSource<
     );
   }
   const baseUrl = compiledBaseUrl ?? fallbackBaseUrl ?? '/';
+  const compiledI18n = compiled.i18n ? normalizeI18n(compiled.i18n) : undefined;
+  const runtimeI18n = options.i18n ? normalizeI18n(options.i18n) : undefined;
+  if (!compiledI18n && runtimeI18n) {
+    throw new TypeError('Runtime i18n requires compiled i18n config');
+  }
+  if (compiledI18n && runtimeI18n && JSON.stringify(compiledI18n) !== JSON.stringify(runtimeI18n)) {
+    throw new TypeError(`Runtime i18n config does not match compiled i18n config for collection ${JSON.stringify(name)}`);
+  }
+  const i18n = compiledI18n;
 
   type SourceConfig = {
     pageData: LumePageData<Data & InferPluginData<Plugins>>;
@@ -126,7 +139,8 @@ function createCollectionSource<
             const result = plugin.runtime?.compare?.(a, b) ?? 0;
             if (result !== 0) return result;
           }
-          return a.slug.join('/').localeCompare(b.slug.join('/'));
+          return (a.locale ?? '').localeCompare(b.locale ?? '')
+            || a.slug.join('/').localeCompare(b.slug.join('/'));
         })
         .map((entry) => ({
         type: 'page' as const,
@@ -152,7 +166,16 @@ function createCollectionSource<
     );
   }
 
-  type Loader = ReturnType<typeof dynamicLoader<DynamicSource<SourceConfig>>>;
+  function createLoader(at: number) {
+    const source: DynamicSource<SourceConfig> = { files: () => filesAt(at) };
+    return dynamicLoader(source, {
+      baseUrl,
+      i18n,
+      plugins: options.loaderPlugins,
+    });
+  }
+
+  type Loader = ReturnType<typeof createLoader>;
   interface Generation {
     from: number;
     until: number;
@@ -166,11 +189,7 @@ function createCollectionSource<
   let accessCounter = 0;
 
   function createGeneration(at: number): Generation {
-    const source: DynamicSource<SourceConfig> = { files: () => filesAt(at) };
-    const loader = dynamicLoader(source, {
-      baseUrl,
-      plugins: options.loaderPlugins,
-    });
+    const loader = createLoader(at);
     return {
       from: at,
       until: deadlineAt(at),
