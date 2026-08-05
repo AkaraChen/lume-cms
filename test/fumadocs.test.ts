@@ -6,12 +6,12 @@ function entry(id: string, publishAtMs: number | null, draft = false) {
   return {
     id,
     slug: [id],
-    sourcePath: `content/${id}.md`,
+    path: `${id}.md`,
     publishDate: publishAtMs === null ? null : new Date(publishAtMs).toISOString(),
     publishAtMs,
     draft,
     data: { title: id },
-    body: { format: 'markdown' as const, markdown: id, html: `<p>${id}</p>`, toc: [] },
+    body: { markdown: id, code: '', toc: [], structuredData: { headings: [], contents: [] } },
   };
 }
 
@@ -39,12 +39,12 @@ describe('createFumadocsSource', () => {
       entries: [{
         id: 'scheduled',
         slug: ['scheduled'],
-        sourcePath: 'content/scheduled.md',
+        path: 'scheduled.md',
         publishDate: '1970-01-01T00:00:01Z',
         publishAtMs: 1_000,
         draft: false,
         data: { title: 'Scheduled' },
-        body: { format: 'markdown', markdown: 'secret', html: '<p>secret</p>', toc: [] },
+        body: { markdown: 'secret', code: '', toc: [], structuredData: { headings: [], contents: [] } },
       }],
     };
     const source = createFumadocsSource(content, { now: () => new Date(now), maxStaleMs: 86_400_000 });

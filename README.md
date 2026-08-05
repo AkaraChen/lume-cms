@@ -57,7 +57,7 @@ export const { getSource } = createFumadocsSource(content, {
 });
 ```
 
-The generated JSON intentionally retains future entries and their bodies. `createContentSource()` applies the only visibility predicate before deriving direct slug lookup, enumeration, navigation, route params, or Fumadocs `DynamicSource.files()`. Advancing an injected clock across a deadline changes all of those reads without compiling JSON or rebuilding the app.
+The generated JSON intentionally retains future entries and their bodies. `createContentSource()` applies the only visibility predicate before deriving direct slug lookup, enumeration, route params, or Fumadocs `DynamicSource.files()` — and the Fumadocs page tree, search index and navigation are all built from that last one, so they inherit the same filter. Advancing an injected clock across a deadline changes all of those reads without compiling JSON or rebuilding the app.
 
 The Fumadocs adapter uses its public `DynamicSource` and `dynamicLoader()` APIs. Its cache is deadline-aware:
 

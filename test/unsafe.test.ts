@@ -8,9 +8,9 @@ describe('unsafe_getAllEntriesIncludingUnpublished', () => {
     const content: CompiledContent = {
       schemaVersion: 1,
       entries: [{
-        id: 'page', slug: ['page'], sourcePath: 'content/page.md', publishDate: null,
+        id: 'page', slug: ['page'], path: 'page.md', publishDate: null,
         publishAtMs: null, draft: false, data: { title: 'Original' },
-        body: { format: 'markdown', markdown: 'body', html: '<p>body</p>', toc: [] },
+        body: { markdown: 'body', code: '', toc: [], structuredData: { headings: [], contents: [] } },
       }],
     };
     const source = createContentSource(content, { now: () => new Date(0) });

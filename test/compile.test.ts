@@ -1,13 +1,12 @@
 import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { createElement } from 'react';
+import { createElement, type ReactElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it } from 'vitest';
 import * as v from 'valibot';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import { compileContent, serializeCompiledContent } from '../src/compile.js';
-import { getMdxComponent } from '../src/fumadocs.js';
 import { createContentSource } from '../src/source.js';
 
 const dirs: string[] = [];
@@ -20,6 +19,16 @@ async function fixture(files: Record<string, string>) {
     await writeFile(path.join(cwd, name), value);
   }
   return cwd;
+}
+
+/** Render an entry the way Fumadocs does: through `page.data.body`. */
+async function renderBody(
+  result: Awaited<ReturnType<typeof compileContent>>,
+  components?: Record<string, unknown>,
+) {
+  const files = await createContentSource(result).toDynamicSource().files();
+  const Body = files.find((file) => file.type === 'page')!.data.body;
+  return renderToStaticMarkup(await (Body as (props: unknown) => Promise<ReactElement>)({ components }));
 }
 
 afterEach(async () => {
@@ -35,7 +44,7 @@ describe('compileContent', () => {
     });
     const result = await compileContent({ cwd, write: false });
     expect(result.entries.map((item) => item.id)).toEqual(['data', 'hello']);
-    expect(result.entries[0]?.body.html).toContain('<h1>JSON body</h1>');
+    expect(result.entries[0]?.body.code).toContain('JSON body');
     expect(result.entries[1]?.body.toc).toEqual([{ title: 'Heading', url: '#heading', depth: 1 }]);
   });
 
@@ -45,17 +54,13 @@ describe('compileContent', () => {
     });
     const result = await compileContent({ cwd, write: false });
     const body = result.entries[0]!.body;
-    expect(body.format).toBe('mdx');
     expect(body.code).toContain('function _createMdxContent');
     expect(body.toc).toEqual([{ title: 'MDX heading', url: '#mdx-heading', depth: 1 }]);
 
-    const Content = await getMdxComponent(body);
-    const html = renderToStaticMarkup(createElement(Content, {
-      components: {
-        Callout: ({ answer, children }: { answer: number; children: unknown }) =>
-          createElement('aside', null, `${answer}:`, children as never),
-      },
-    }));
+    const html = await renderBody(result, {
+      Callout: ({ answer, children }: { answer: number; children: unknown }) =>
+        createElement('aside', null, `${answer}:`, children as never),
+    });
     expect(html).toContain('<aside>42:MDX body</aside>');
   });
 
@@ -84,7 +89,7 @@ const answer = 42;
       write: false,
       config: {
         remarkPlugins(defaults) {
-          composedRemark = defaults.length >= 5;
+          composedRemark = defaults.length >= 4;
           return defaults;
         },
         rehypePlugins(defaults) {
@@ -93,8 +98,7 @@ const answer = 42;
         },
       },
     });
-    const Content = await getMdxComponent(result.entries[0]!.body);
-    const html = renderToStaticMarkup(createElement(Content));
+    const html = await renderBody(result);
 
     expect(composedRemark).toBe(true);
     expect(composedRehype).toBe(true);
@@ -143,13 +147,9 @@ const answer = 42;
       write: false,
       config: { content: { root: 'content/docs', include: ['content/docs/**/*.{mdx,json}'] } },
     });
-    expect(result.entries[0]).toMatchObject({ id: 'index', slug: [], virtualPath: 'index.mdx' });
-    expect(result.entries[0]?.body.structuredData?.headings[0]?.content).toBe('Searchable heading');
-    expect(result.metas).toEqual([{
-      path: 'meta.json',
-      sourcePath: 'content/docs/meta.json',
-      data: { title: 'Docs', pages: ['index'] },
-    }]);
+    expect(result.entries[0]).toMatchObject({ id: 'index', slug: [], path: 'index.mdx' });
+    expect(result.entries[0]?.body.structuredData.headings[0]?.content).toBe('Searchable heading');
+    expect(result.metas).toEqual([{ path: 'meta.json', data: { title: 'Docs', pages: ['index'] } }]);
     const files = await createContentSource(result).toDynamicSource().files();
     expect(files.map((file) => file.type)).toEqual(['page', 'meta']);
     const page = files.find((file) => file.type === 'page');

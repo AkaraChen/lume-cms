@@ -6,12 +6,12 @@ function entry(id: string, publishAtMs: number | null, draft = false): CompiledE
   return {
     id,
     slug: id.split('/'),
-    sourcePath: `content/${id}.md`,
+    path: `${id}.md`,
     publishDate: publishAtMs === null ? null : new Date(publishAtMs).toISOString(),
     publishAtMs,
     draft,
     data: { title: id, secret: `secret-${id}` },
-    body: { format: 'markdown', markdown: id, html: `<p>${id}</p>`, toc: [] },
+    body: { markdown: id, code: '', toc: [], structuredData: { headings: [], contents: [] } },
   };
 }
 
@@ -41,7 +41,6 @@ describe('createContentSource', () => {
     });
     expect(source.getEntry('hidden/nested')).toBeUndefined();
     expect(source.getEntries().map((item) => item.id)).toEqual(['public']);
-    expect(JSON.stringify(source.getNavigationTree())).not.toContain('hidden');
     expect(source.generateParams()).toEqual([{ slug: ['public'] }]);
     expect(JSON.stringify(await source.toDynamicSource().files())).not.toContain('hidden');
   });

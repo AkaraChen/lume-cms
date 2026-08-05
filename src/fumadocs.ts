@@ -3,18 +3,12 @@ import 'server-only';
 import { dynamicLoader } from 'fumadocs-core/source/dynamic';
 import type { LoaderPluginOption } from 'fumadocs-core/source';
 import { createContentSource, type ContentSourceOptions } from './source.js';
-import { evaluateCompiledBody } from './mdx-runtime.js';
-import type { CompiledBody, CompiledContent } from './types.js';
+import type { CompiledContent } from './types.js';
 
 export interface FumadocsSourceOptions extends ContentSourceOptions {
   baseUrl?: string;
   maxStaleMs?: number;
   plugins?: LoaderPluginOption[];
-}
-
-/** Evaluate trusted, build-produced MDX on the server and return its React component. */
-export async function getMdxComponent(body: CompiledBody) {
-  return evaluateCompiledBody(body);
 }
 
 export function createFumadocsSource<Data extends Record<string, unknown>>(

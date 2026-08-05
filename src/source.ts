@@ -1,13 +1,36 @@
+import { run } from '@mdx-js/mdx';
 import type { DynamicSource, MetaData } from 'fumadocs-core/source';
-import type { ComponentType } from 'react';
-import { createCompiledBodyComponent } from './mdx-runtime.js';
-import type {
-  CompiledContent,
-  CompiledEntry,
-  NavigationNode,
-  PublicEntry,
-} from './types.js';
-import { isVisible } from './visibility.js';
+import { createElement, type ComponentType } from 'react';
+import * as runtime from 'react/jsx-runtime';
+import type { CompiledBody, CompiledContent, CompiledEntry, PublicEntry } from './types.js';
+
+/** The only visibility predicate in the package. Every read path derives from it. */
+function isVisible(entry: CompiledEntry, nowMs: number): boolean {
+  return !entry.draft && (entry.publishAtMs === null || entry.publishAtMs <= nowMs);
+}
+
+type BodyComponent = ComponentType<{ components?: Record<string, unknown> }>;
+
+/** Evaluate trusted, build-produced MDX lazily, once per entry. */
+function bodyComponent(body: CompiledBody): BodyComponent {
+  let evaluated: Promise<BodyComponent> | undefined;
+  return async function CompiledBodyContent(props) {
+    evaluated ??= run(body.code, { ...runtime, baseUrl: import.meta.url }).then(
+      (module) => module.default as BodyComponent,
+    );
+    return createElement(await evaluated, props);
+  };
+}
+
+/** Page data handed to Fumadocs, mirroring what `fumadocs-mdx` provides. */
+export type PageData<Data extends Record<string, unknown> = Record<string, unknown>> = Data & {
+  title: string;
+  body: BodyComponent;
+  content: string;
+  toc: CompiledBody['toc'];
+  structuredData: CompiledBody['structuredData'];
+  publishDate: string | null;
+};
 
 export interface ContentSourceOptions {
   now?: () => Date;
@@ -16,40 +39,17 @@ export interface ContentSourceOptions {
 export interface ContentSource<Data extends Record<string, unknown> = Record<string, unknown>> {
   getEntry(slug: string | string[]): PublicEntry<Data> | undefined;
   getEntries(): PublicEntry<Data>[];
-  getNavigationTree(): NavigationNode[];
   generateParams(): Array<{ slug: string[] }>;
   nextTransitionAt(): number | null;
-  toDynamicSource(): DynamicSource<{
-    pageData: Omit<Data, 'title' | 'description' | 'icon' | 'full' | 'body' | 'content' | 'toc' | 'structuredData' | 'publishDate'> & {
-      title: string;
-      description?: string;
-      icon?: string;
-      full?: boolean;
-      body: ComponentType<{ components?: Record<string, any> }>;
-      content: string;
-      toc: PublicEntry<Data>['body']['toc'];
-      structuredData: NonNullable<PublicEntry<Data>['body']['structuredData']>;
-      publishDate: string | null;
-    };
-    metaData: MetaData;
-  }>;
+  toDynamicSource(): DynamicSource<{ pageData: PageData<Data>; metaData: MetaData }>;
 }
 
-function toPublic<Data extends Record<string, unknown>>(
-  entry: CompiledEntry<Data>,
-): PublicEntry<Data> {
-  return {
-    id: entry.id,
-    slug: [...entry.slug],
-    sourcePath: entry.sourcePath,
-    virtualPath: entry.virtualPath,
-    publishDate: entry.publishDate,
-    data: { ...entry.data },
-    body: {
-      ...entry.body,
-      toc: entry.body.toc.map((item) => ({ ...item })),
-    },
-  };
+function toPublic<Data extends Record<string, unknown>>({
+  publishAtMs: _publishAtMs,
+  draft: _draft,
+  ...entry
+}: CompiledEntry<Data>): PublicEntry<Data> {
+  return { ...entry, slug: [...entry.slug], data: { ...entry.data }, body: { ...entry.body } };
 }
 
 export function createContentSource<Data extends Record<string, unknown>>(
@@ -61,83 +61,58 @@ export function createContentSource<Data extends Record<string, unknown>>(
   }
 
   const now = options.now ?? (() => new Date());
-  const visibleEntries = () => {
-    const nowMs = now().getTime();
-    if (!Number.isFinite(nowMs)) throw new TypeError('The injected clock returned an invalid Date');
-    return content.entries
-      .filter((entry) => isVisible(entry, nowMs))
-      .sort((a, b) => (b.publishAtMs ?? -Infinity) - (a.publishAtMs ?? -Infinity) || a.id.localeCompare(b.id));
-  };
+  function nowMs() {
+    const value = now().getTime();
+    if (!Number.isFinite(value)) throw new TypeError('The injected clock returned an invalid Date');
+    return value;
+  }
 
-  const getEntries = () => visibleEntries().map(toPublic);
+  function getEntries() {
+    const at = nowMs();
+    return content.entries
+      .filter((entry) => isVisible(entry, at))
+      .sort((a, b) => (b.publishAtMs ?? -Infinity) - (a.publishAtMs ?? -Infinity) || a.id.localeCompare(b.id))
+      .map(toPublic);
+  }
 
   return {
-    getEntry(slug) {
-      const key = (Array.isArray(slug) ? slug : slug.split('/')).filter(Boolean).join('/');
-      const entry = visibleEntries().find((candidate) => candidate.slug.join('/') === key);
-      return entry ? toPublic(entry) : undefined;
-    },
     getEntries,
-    getNavigationTree() {
-      const roots: NavigationNode[] = [];
-      for (const entry of getEntries()) {
-        let level = roots;
-        entry.slug.forEach((segment, index) => {
-          let node = level.find((candidate) => candidate.name === segment);
-          if (!node) {
-            node = { name: segment };
-            level.push(node);
-            level.sort((a, b) => a.name.localeCompare(b.name));
-          }
-          if (index === entry.slug.length - 1) {
-            node.slug = [...entry.slug];
-            node.entry = entry;
-          } else {
-            node.children ??= [];
-            level = node.children;
-          }
-        });
-      }
-      return roots;
+    getEntry(slug) {
+      const id = (Array.isArray(slug) ? slug : slug.split('/')).filter(Boolean).join('/') || 'index';
+      return getEntries().find((entry) => entry.id === id);
     },
     generateParams() {
-      return getEntries().map((entry) => ({ slug: [...entry.slug] }));
+      return getEntries().map((entry) => ({ slug: entry.slug }));
     },
     nextTransitionAt() {
-      const nowMs = now().getTime();
-      let result = Infinity;
-      for (const entry of content.entries) {
-        if (!entry.draft && entry.publishAtMs !== null && entry.publishAtMs > nowMs) {
-          result = Math.min(result, entry.publishAtMs);
-        }
-      }
-      return Number.isFinite(result) ? result : null;
+      const at = nowMs();
+      const upcoming = content.entries
+        .filter((entry) => !entry.draft && entry.publishAtMs !== null && entry.publishAtMs > at)
+        .map((entry) => entry.publishAtMs as number);
+      return upcoming.length ? Math.min(...upcoming) : null;
     },
-    toDynamicSource() {
-      return {
-        files: () =>
-          [
-            ...getEntries().map((entry) => ({
-              type: 'page' as const,
-              path: entry.virtualPath ?? entry.sourcePath.replace(/^.*?content\//, ''),
-              slugs: entry.slug,
-              data: {
-                ...entry.data,
-                title: typeof entry.data.title === 'string' ? entry.data.title : entry.id,
-                body: createCompiledBodyComponent(entry.body),
-                content: entry.body.markdown,
-                toc: entry.body.toc,
-                structuredData: entry.body.structuredData ?? { headings: [], contents: [] },
-                publishDate: entry.publishDate,
-              },
-            })),
-            ...(content.metas ?? []).map((meta) => ({
-              type: 'meta' as const,
-              path: meta.path,
-              data: { ...meta.data },
-            })),
-          ],
-      };
-    },
+    toDynamicSource: () => ({
+      files: () => [
+        ...getEntries().map((entry) => ({
+          type: 'page' as const,
+          path: entry.path,
+          slugs: entry.slug,
+          data: {
+            ...entry.data,
+            title: typeof entry.data.title === 'string' ? entry.data.title : entry.id,
+            body: bodyComponent(entry.body),
+            content: entry.body.markdown,
+            toc: entry.body.toc,
+            structuredData: entry.body.structuredData,
+            publishDate: entry.publishDate,
+          } as PageData<Data>,
+        })),
+        ...(content.metas ?? []).map((meta) => ({
+          type: 'meta' as const,
+          path: meta.path,
+          data: { ...meta.data },
+        })),
+      ],
+    }),
   };
 }

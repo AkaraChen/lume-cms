@@ -7,27 +7,25 @@ export interface TocItem {
 }
 
 export interface CompiledBody {
-  format: 'markdown' | 'mdx';
+  /** Source Markdown/MDX, kept for text exports such as `llms.txt`. */
   markdown: string;
-  html: string;
-  /** Compiled MDX function body used for server-side React rendering. */
-  code?: string;
+  /** Compiled MDX function body, evaluated on the server to render React. */
+  code: string;
   toc: TocItem[];
-  structuredData?: StructuredData;
+  structuredData: StructuredData;
 }
 
 export interface CompiledMeta<Data extends Record<string, unknown> = Record<string, unknown>> {
+  /** Path relative to the content root, the way Fumadocs addresses files. */
   path: string;
-  sourcePath: string;
-  virtualPath?: string;
   data: Data;
 }
 
 export interface CompiledEntry<Data extends Record<string, unknown> = Record<string, unknown>> {
   id: string;
   slug: string[];
-  sourcePath: string;
-  virtualPath?: string;
+  /** Path relative to the content root, the way Fumadocs addresses files. */
+  path: string;
   publishDate: string | null;
   publishAtMs: number | null;
   draft: boolean;
@@ -41,19 +39,7 @@ export interface CompiledContent<Data extends Record<string, unknown> = Record<s
   metas?: CompiledMeta[];
 }
 
-export interface PublicEntry<Data extends Record<string, unknown> = Record<string, unknown>> {
-  id: string;
-  slug: string[];
-  sourcePath: string;
-  virtualPath?: string;
-  publishDate: string | null;
-  data: Data;
-  body: CompiledBody;
-}
-
-export interface NavigationNode {
-  name: string;
-  slug?: string[];
-  entry?: PublicEntry;
-  children?: NavigationNode[];
-}
+export type PublicEntry<Data extends Record<string, unknown> = Record<string, unknown>> = Omit<
+  CompiledEntry<Data>,
+  'publishAtMs' | 'draft'
+>;

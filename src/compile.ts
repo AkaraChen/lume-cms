@@ -1,6 +1,6 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { compile as compileMdxSource, type CompileOptions as MdxCompileOptions } from '@mdx-js/mdx';
+import { compile as compileMdx } from '@mdx-js/mdx';
 import { fromZonedTime } from 'date-fns-tz';
 import fg from 'fast-glob';
 import {
@@ -13,11 +13,7 @@ import {
   structure,
 } from 'fumadocs-core/mdx-plugins';
 import matter from 'gray-matter';
-import { unified, type Pluggable } from 'unified';
-import remarkParse from 'remark-parse';
-import remarkRehype from 'remark-rehype';
-import rehypeStringify from 'rehype-stringify';
-import { visit } from 'unist-util-visit';
+import type { Pluggable } from 'unified';
 import { parse as parseYaml } from 'yaml';
 import {
   defaultFrontmatterSchema,
@@ -25,11 +21,13 @@ import {
   loadLumeConfig,
   type ContentSchema,
   type LumeConfig,
+  type PluginOption,
 } from './config.js';
-import type { CompiledContent, CompiledEntry, CompiledMeta, TocItem } from './types.js';
+import type { CompiledBody, CompiledContent, CompiledEntry, CompiledMeta } from './types.js';
 
 const OFFSET_DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/;
 const PLAIN_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const CONTENT_EXTENSION = /\.(md|mdx|markdown|json)$/i;
 
 export interface CompileOptions {
   cwd?: string;
@@ -49,8 +47,8 @@ function parsePublishDate(value: unknown, sourcePath: string, timezone?: string)
   } else if (PLAIN_DATE.test(value) && timezone) {
     date = fromZonedTime(`${value}T00:00:00`, timezone);
   } else {
-    const timezoneHint = timezone ? '' : ' (or configure defaultTimezone for a plain date)';
-    throw new Error(`${sourcePath}: invalid publishDate ${JSON.stringify(value)}; expected ISO 8601 with Z or an offset${timezoneHint}`);
+    const hint = timezone ? '' : ' (or configure defaultTimezone for a plain date)';
+    throw new Error(`${sourcePath}: invalid publishDate ${JSON.stringify(value)}; expected ISO 8601 with Z or an offset${hint}`);
   }
 
   if (!Number.isFinite(date.getTime())) {
@@ -61,81 +59,44 @@ function parsePublishDate(value: unknown, sourcePath: string, timezone?: string)
 
 function textOf(node: unknown): string {
   if (!node || typeof node !== 'object') return '';
-  const value = (node as { value?: unknown }).value;
+  const { value, children } = node as { value?: unknown; children?: unknown[] };
   if (typeof value === 'string') return value;
-  const children = (node as { children?: unknown[] }).children;
   return children?.map(textOf).join('') ?? '';
 }
 
-function slugify(input: string): string {
-  return input.toLowerCase().trim().replace(/[^\p{L}\p{N}\s-]/gu, '').replace(/\s+/g, '-').replace(/-+/g, '-');
+/** Append extra plugins, or hand the official defaults to a function for full control. */
+function resolvePlugins(defaults: Pluggable[], configured?: PluginOption): Pluggable[] {
+  if (typeof configured === 'function') return configured(defaults);
+  return configured ? [...defaults, ...configured] : defaults;
 }
 
-function composePlugins(
-  createDefaults: (extras: Pluggable[]) => Pluggable[],
-  configured: LumeConfig['remarkPlugins'],
-): Pluggable[] {
-  const defaults = createDefaults(Array.isArray(configured) ? configured : []);
-  return typeof configured === 'function' ? configured(defaults) : defaults;
-}
-
-function mdxPlugins(config: LumeConfig, toc: TocItem[]) {
-  return {
-    remarkPlugins: composePlugins((extras) => [
-      remarkGfm,
-      [remarkHeading, { generateToc: false }],
-      [remarkImage, { useImport: false }],
-      remarkNpm,
-      ...extras,
-      collectToc(toc),
-    ], config.remarkPlugins),
-    rehypePlugins: composePlugins((extras) => [
-      rehypeCode,
-      ...extras,
-      [rehypeToc, { exportToc: { as: 'data' } }],
-    ], config.rehypePlugins),
-  };
-}
-
-async function compileMarkdown(markdown: string, config: LumeConfig) {
-  const toc: TocItem[] = [];
-  const html = String(await unified().use(remarkParse).use(remarkGfm).use(remarkRehype).use(rehypeStringify).process(markdown));
-  const code = String(await compileMdxSource(markdown, {
+/**
+ * One pipeline for Markdown and MDX, matching the `fumadocs-mdx` default preset.
+ * Headings ids, the table of contents and syntax highlighting all come from Fumadocs.
+ */
+async function compileBody(source: string, config: LumeConfig): Promise<CompiledBody> {
+  const remarkPlugins = resolvePlugins(
+    [remarkGfm, [remarkHeading, { generateToc: false }], [remarkImage, { useImport: false }], remarkNpm],
+    config.remarkPlugins,
+  );
+  const file = await compileMdx(source, {
     outputFormat: 'function-body',
     development: false,
-    ...mdxPlugins(config, toc),
+    remarkPlugins,
+    rehypePlugins: resolvePlugins([rehypeCode, [rehypeToc, { exportToc: { as: 'data' } }]], config.rehypePlugins),
+  });
+  const toc = (file.data.rehypeToc ?? []).map((item) => ({
+    title: textOf(item.title),
+    url: item.url,
+    depth: item.depth,
   }));
-  return { format: 'markdown' as const, markdown, html, code, toc, structuredData: structure(markdown) };
-}
-
-function collectToc(toc: TocItem[]): NonNullable<MdxCompileOptions['remarkPlugins']>[number] {
-  return () => (tree) => {
-    const counts = new Map<string, number>();
-    visit(tree, 'heading', (node: { depth: number; children?: unknown[] }) => {
-      const title = textOf(node);
-      const base = slugify(title);
-      const count = counts.get(base) ?? 0;
-      counts.set(base, count + 1);
-      toc.push({ title, url: `#${count ? `${base}-${count}` : base}`, depth: node.depth });
-    });
-  };
-}
-
-async function compileMdx(mdx: string, config: LumeConfig) {
-  const toc: TocItem[] = [];
-  const code = String(await compileMdxSource(mdx, {
-    outputFormat: 'function-body',
-    development: false,
-    ...mdxPlugins(config, toc),
-  }));
-  return { format: 'mdx' as const, markdown: mdx, html: '', code, toc, structuredData: structure(mdx) };
+  // `structure` runs synchronously, so it only takes the sync subset of the pipeline.
+  return { markdown: source, code: String(file), toc, structuredData: structure(source, [remarkGfm]) };
 }
 
 function relativeSlug(sourcePath: string, root: string): string[] {
-  let value = path.relative(root, sourcePath).replace(/\\/g, '/').replace(/\.(md|mdx|markdown|json)$/i, '');
-  if (value === 'index') value = '';
-  else if (value.endsWith('/index')) value = value.slice(0, -'/index'.length);
-  return value.split('/').filter(Boolean);
+  const value = path.relative(root, sourcePath).replace(/\\/g, '/').replace(CONTENT_EXTENSION, '');
+  return value.replace(/(^|\/)index$/, '').split('/').filter(Boolean);
 }
 
 function stableValue(value: unknown): unknown {
@@ -155,104 +116,94 @@ export function serializeCompiledContent(content: CompiledContent): string {
   return `${JSON.stringify(stableValue(content), null, 2)}\n`;
 }
 
-async function validateSchema(schema: ContentSchema, value: unknown, sourcePath: string, kind: string) {
+async function validate(schema: ContentSchema, value: unknown, sourcePath: string, kind: string) {
   const result = await schema['~standard'].validate(value);
   if (result.issues) {
-    const details = result.issues.map((issue) => issue.message).join('; ');
-    throw new Error(`${sourcePath}: invalid ${kind}: ${details}`);
+    throw new Error(`${sourcePath}: invalid ${kind}: ${result.issues.map((issue) => issue.message).join('; ')}`);
   }
   return result.value;
+}
+
+function parseJson(raw: string, sourcePath: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch (error) {
+    throw new Error(`${sourcePath}: invalid JSON: ${(error as Error).message}`);
+  }
+}
+
+/** A source file yields one candidate, except a JSON array which yields one per item. */
+function readCandidates(raw: string, sourcePath: string, isJson: boolean) {
+  if (!isJson) {
+    const parsed = matter(raw, { engines: { yaml: (source) => parseYaml(source) as Record<string, unknown> } });
+    return [{ data: parsed.data as unknown, markdown: parsed.content, suffix: undefined as number | undefined }];
+  }
+
+  const parsed = parseJson(raw, sourcePath);
+  const items = Array.isArray(parsed) ? parsed : [parsed];
+  return items.map((item, index) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      throw new Error(`${sourcePath}: JSON content must be an object or an array of objects`);
+    }
+    const { body = '', ...data } = item as Record<string, unknown>;
+    if (typeof body !== 'string') throw new Error(`${sourcePath}: body must be a Markdown string`);
+    return { data: data as unknown, markdown: body, suffix: Array.isArray(parsed) ? index + 1 : undefined };
+  });
 }
 
 export async function compileContent(options: CompileOptions = {}): Promise<CompiledContent> {
   const cwd = path.resolve(options.cwd ?? process.cwd());
   const config = options.config ?? (await loadLumeConfig(cwd));
   const contentRoot = path.resolve(cwd, config.content?.root ?? 'content');
-  const include = config.content?.include ?? ['content/**/*.{md,mdx,markdown,json}'];
-  const files = await fg(include, {
+  const schema = config.content?.schema ?? defaultFrontmatterSchema;
+  const metaSchema = config.content?.metaSchema ?? defaultMetaSchema;
+  const files = await fg(config.content?.include ?? ['content/**/*.{md,mdx,markdown,json}'], {
     cwd,
     ignore: config.content?.exclude,
     onlyFiles: true,
     unique: true,
   });
-  const schema = config.content?.schema ?? defaultFrontmatterSchema;
-  const metaSchema = config.content?.metaSchema ?? defaultMetaSchema;
+
   const entries: CompiledEntry[] = [];
   const metas: CompiledMeta[] = [];
 
-  for (const relativePath of files.sort()) {
-    const absolutePath = path.resolve(cwd, relativePath);
+  for (const sourcePath of files.sort()) {
+    const absolutePath = path.resolve(cwd, sourcePath);
+    const contentPath = path.relative(contentRoot, absolutePath).replace(/\\/g, '/');
     const raw = await readFile(absolutePath, 'utf8');
-    const extension = path.extname(relativePath).toLowerCase();
-    if (extension === '.json' && path.basename(relativePath).toLowerCase() === 'meta.json') {
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(raw);
-      } catch (error) {
-        throw new Error(`${relativePath}: invalid JSON: ${(error as Error).message}`);
-      }
-      const data = await validateSchema(metaSchema, parsed, relativePath, 'metadata');
-      metas.push({
-        path: path.relative(contentRoot, absolutePath).replace(/\\/g, '/'),
-        sourcePath: relativePath.replace(/\\/g, '/'),
-        data,
-      });
+    const isJson = path.extname(sourcePath).toLowerCase() === '.json';
+
+    if (isJson && path.basename(sourcePath).toLowerCase() === 'meta.json') {
+      const data = await validate(metaSchema, parseJson(raw, sourcePath), sourcePath, 'metadata');
+      metas.push({ path: contentPath, data });
       continue;
     }
-    const candidates: Array<{ data: unknown; markdown: string; suffix?: number }> = [];
-    if (extension === '.json') {
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(raw);
-      } catch (error) {
-        throw new Error(`${relativePath}: invalid JSON: ${(error as Error).message}`);
-      }
-      for (const [index, item] of (Array.isArray(parsed) ? parsed : [parsed]).entries()) {
-        if (!item || typeof item !== 'object' || Array.isArray(item)) {
-          throw new Error(`${relativePath}: JSON content must be an object or an array of objects`);
-        }
-        const { body = '', ...data } = item as Record<string, unknown>;
-        if (typeof body !== 'string') throw new Error(`${relativePath}: body must be a Markdown string`);
-        candidates.push({ data, markdown: body, suffix: Array.isArray(parsed) ? index + 1 : undefined });
-      }
-    } else {
-      const parsed = matter(raw, {
-        engines: { yaml: (source) => parseYaml(source) as Record<string, unknown> },
-      });
-      candidates.push({ data: parsed.data, markdown: parsed.content });
-    }
 
-    for (const candidate of candidates) {
-      const data = await validateSchema(schema, candidate.data, relativePath, 'frontmatter');
-      const configuredSlug = typeof data.slug === 'string' ? data.slug.split('/').filter(Boolean) : undefined;
-      const slug = configuredSlug ?? [
-        ...relativeSlug(absolutePath, contentRoot),
-        ...(candidate.suffix ? [String(candidate.suffix)] : []),
-      ];
-      const id = slug.join('/') || 'index';
-      const dates = parsePublishDate(data.publishDate, relativePath, config.defaultTimezone);
+    for (const candidate of readCandidates(raw, sourcePath, isJson)) {
+      const data = await validate(schema, candidate.data, sourcePath, 'frontmatter');
+      const slug = typeof data.slug === 'string'
+        ? data.slug.split('/').filter(Boolean)
+        : [...relativeSlug(absolutePath, contentRoot), ...(candidate.suffix ? [String(candidate.suffix)] : [])];
       entries.push({
-        id,
+        id: slug.join('/') || 'index',
         slug,
-        sourcePath: relativePath.replace(/\\/g, '/'),
-        virtualPath: path.relative(contentRoot, absolutePath).replace(/\\/g, '/'),
-        ...dates,
+        path: contentPath,
+        ...parsePublishDate(data.publishDate, sourcePath, config.defaultTimezone),
         draft: data.draft === true,
         data,
-        body: extension === '.mdx' ? await compileMdx(candidate.markdown, config) : await compileMarkdown(candidate.markdown, config),
+        body: await compileBody(candidate.markdown, config),
       });
     }
   }
 
   entries.sort((a, b) => a.id.localeCompare(b.id));
-  const duplicates = entries.filter((entry, index) => index > 0 && entry.id === entries[index - 1]?.id);
-  if (duplicates.length) throw new Error(`Duplicate content slug: ${duplicates[0]?.id}`);
+  const duplicate = entries.find((entry, index) => index > 0 && entry.id === entries[index - 1]?.id);
+  if (duplicate) throw new Error(`Duplicate content slug: ${duplicate.id}`);
   metas.sort((a, b) => a.path.localeCompare(b.path));
-  const content: CompiledContent = { schemaVersion: 1, entries, metas };
 
+  const content: CompiledContent = { schemaVersion: 1, entries, metas };
   if (options.write !== false) {
-    const output = path.resolve(cwd, config.output ?? 'content.generated.json');
-    await writeFile(output, serializeCompiledContent(content), 'utf8');
+    await writeFile(path.resolve(cwd, config.output ?? 'content.generated.json'), serializeCompiledContent(content), 'utf8');
   }
   return content;
 }
