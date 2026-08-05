@@ -1,0 +1,22 @@
+[
+  {
+    "name": "runtime entry (dist/index.mjs)",
+    "path": "dist/index.mjs",
+    "limit": "1.25 kB"
+  },
+  {
+    "name": "config entry (dist/config.mjs)",
+    "path": "dist/config.mjs",
+    "limit": "400 B"
+  },
+  {
+    "name": "cli (dist/cli.mjs)",
+    "path": "dist/cli.mjs",
+    "limit": "2 kB"
+  },
+  {
+    "name": "published runtime total",
+    "path": ["dist/*.mjs", "bin/*.mjs"],
+    "limit": "3.5 kB"
+  }
+]
