@@ -19,6 +19,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
+      - run: pnpm size
       - run: pnpm --filter lume-cms-example build
       - run: node scripts/scan-client.mjs examples UNPUBLISHED_TITLE_KIT_614 UNPUBLISHED_BODY_SENTINEL_KIT_614
       - run: pnpm --filter lume-cms-example test:routes
