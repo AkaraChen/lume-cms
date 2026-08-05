@@ -55,6 +55,20 @@ if (!files.has('dist/schedule.mjs') || !files.has('dist/schedule.d.mts')) {
 if (readFileSync('dist/index.mjs', 'utf8').includes('publishAtMs')) {
   throw new Error('The core runtime bundle statically includes schedule implementation details');
 }
+execFileSync('pnpm', [
+  'exec',
+  'tsc',
+  '--noEmit',
+  '--strict',
+  '--skipLibCheck',
+  '--target',
+  'ES2022',
+  '--module',
+  'NodeNext',
+  '--moduleResolution',
+  'NodeNext',
+  'scripts/verify-package-types.ts',
+], { stdio: 'pipe' });
 const { schedule } = await import('../dist/schedule.mjs');
 if (schedule().id !== 'schedule') throw new Error('The published schedule entry is not importable');
 const {

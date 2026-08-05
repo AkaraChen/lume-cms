@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { describe, expect, it } from 'vitest';
-import type { Folder, Item, Node } from 'fumadocs-core/page-tree';
+import type { Folder, Item, Node, Root } from 'fumadocs-core/page-tree';
 import { collection, createFumadocsSource, createFumadocsSources } from '../src/fumadocs.js';
 import type { CompiledContent } from '../src/types.js';
 import { schedule } from '../src/schedule.js';
@@ -17,7 +17,11 @@ function entry(id: string, publishAtMs: number | null, draft = false) {
 }
 
 function starterConsumerSets(
-  source: Awaited<ReturnType<ReturnType<typeof createFumadocsSource>['getSource']>>,
+  source: {
+    getPage(slugs: string[]): unknown;
+    getPages(): { slugs: string[] }[];
+    getPageTree(): Root;
+  },
   candidates = ['published', 'scheduled', 'draft'],
 ) {
   const direct = () => candidates.filter((slug) => source.getPage([slug])).sort();
@@ -266,5 +270,91 @@ describe('createFumadocsSource', () => {
     const after = await sourceFactory.getSource();
     const refreshedGuide = after.getPageTree().children[0] as Folder;
     expect((refreshedGuide.children.at(-1) as Item).url).toBe('/guide/tail');
+  });
+
+  it('applies official loader options to the visible snapshot and every public read path', async () => {
+    let now = 19;
+    const storageSnapshots: string[][] = [];
+    const slugInputs: string[] = [];
+    const sourceFactory = createFumadocsSource({
+      schemaVersion: 3,
+      collections: { default: { plugins: ['schedule'], entries: [
+        { ...entry('published', 10), data: { title: 'Zulu', icon: 'Book' } },
+        { ...entry('scheduled', 20), data: { title: 'Alpha', icon: 'Rocket' } },
+        { ...entry('draft', null, true), data: { title: 'Draft', icon: 'Lock' } },
+      ] } },
+    }, {
+      now: () => new Date(now),
+      plugins: [schedule()],
+      url: (slugs) => `/custom/${slugs.join('~')}`,
+      slugs(file) {
+        slugInputs.push(file.path);
+        return [String(file.data.title).toLowerCase()];
+      },
+      icon: (name) => name ? `icon:${name}` : undefined,
+      pageTree: {
+        idPrefix: 'cms',
+        noRef: true,
+        sort: { by: 'name' },
+        context: { prefix: 'Tree ' },
+        transformers: [{
+          file(node) {
+            return { ...node, name: `${String(this.custom?.prefix)}${String(node.name)}` };
+          },
+        }],
+      },
+      loaderPlugins: ({ typedPlugin }) => [typedPlugin({
+        transformStorage({ storage }) {
+          storageSnapshots.push(storage.getFiles().filter((path) => storage.read(path)?.format === 'page'));
+        },
+      })],
+    });
+
+    const before = await sourceFactory.getSource();
+    expect(before.getPages().map(({ slugs, url }) => ({ slugs, url }))).toEqual([
+      { slugs: ['zulu'], url: '/custom/zulu' },
+    ]);
+    expect(before.getPage(['zulu'])?.url).toBe('/custom/zulu');
+    expect(before.getPage(['published'])).toBeUndefined();
+    expect(before.getPageTree()).toMatchObject({
+      $id: 'cms:root',
+      children: [{ name: 'Tree Zulu', icon: 'icon:Book', url: '/custom/zulu' }],
+    });
+    expect(JSON.stringify(before.getPageTree())).not.toContain('$ref');
+    expect(slugInputs).toEqual(['published.md']);
+    expect(storageSnapshots).toEqual([['published.md']]);
+
+    now = 20;
+    const after = await sourceFactory.getSource();
+    expect(after.getPages().map(({ slugs, url }) => ({ slugs, url }))).toEqual([
+      { slugs: ['zulu'], url: '/custom/zulu' },
+      { slugs: ['alpha'], url: '/custom/alpha' },
+    ]);
+    expect(after.getPageTree().children.map((node) => node.type === 'page' ? node.url : undefined)).toEqual([
+      '/custom/alpha',
+      '/custom/zulu',
+    ]);
+    expect(slugInputs).toEqual(['published.md', 'published.md', 'scheduled.md']);
+    expect(storageSnapshots).toEqual([['published.md'], ['published.md', 'scheduled.md']]);
+  });
+
+  it('rejects pageTree.url so page and navigation URLs cannot drift', () => {
+    expect(() => createFumadocsSource({
+      schemaVersion: 3,
+      collections: { default: { plugins: [], entries: [entry('page', null)] } },
+    }, {
+      pageTree: { url: () => '/split' } as never,
+    })).toThrow(/pageTree\.url is unsupported; use the top-level url option/);
+  });
+
+  it('falls back from a custom slug callback to the compiled slug', async () => {
+    const page = { ...entry('file-name', null), slug: ['frontmatter-slug'] };
+    const source = await createFumadocsSource({
+      schemaVersion: 3,
+      collections: { default: { plugins: [], entries: [page] } },
+    }, { slugs: () => undefined }).getSource();
+
+    expect(source.getPage(['frontmatter-slug'])?.path).toBe('file-name.md');
+    expect(source.getPage(['file-name'])).toBeUndefined();
   });
 });

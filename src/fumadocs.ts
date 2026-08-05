@@ -2,36 +2,26 @@ import 'server-only';
 
 import { run } from '@mdx-js/mdx';
 import { dynamicLoader } from 'fumadocs-core/source/dynamic';
-import type { DynamicSource, LoaderPluginOption, MetaData } from 'fumadocs-core/source';
+import type {
+  ContentStorage,
+  ContentStorageMetaFile,
+  ContentStoragePageFile,
+  DynamicSource,
+  LoaderOutput,
+  LoaderOptions,
+  Meta,
+  MetaData,
+  Page,
+} from 'fumadocs-core/source';
 import type { I18nConfig } from 'fumadocs-core/i18n';
 import { createElement, type ComponentType } from 'react';
 import * as runtime from 'react/jsx-runtime';
 import type { CompiledBody, CompiledCollection, CompiledContent, CompiledEntry } from './types.js';
 import { assertPluginIds, type AnyLumePlugin, type InferPluginData } from './plugin.js';
 import { normalizeBaseUrl } from './url.js';
-import { normalizeI18n } from './i18n.js';
+import { normalizeI18n, type CompiledI18nConfig } from './i18n.js';
 
 type BodyComponent = ComponentType<{ components?: Record<string, unknown> }>;
-
-export type { CompiledContent } from './types.js';
-
-export interface FumadocsCollectionOptions<Plugins extends readonly AnyLumePlugin[] = readonly AnyLumePlugin[]> {
-  /** Compatibility fallback for schema v2 output created before baseUrl was persisted. */
-  baseUrl?: string;
-  /** Official Fumadocs config; checked against the compiled i18n contract when both are present. */
-  i18n?: I18nConfig;
-  plugins?: Plugins;
-  loaderPlugins?: LoaderPluginOption[];
-}
-
-interface FumadocsSourcesOptions<Collections extends Record<string, FumadocsCollectionOptions>> {
-  now?: () => Date;
-  collections: Collections;
-}
-
-interface FumadocsSourceOptions<Plugins extends readonly AnyLumePlugin[]> extends FumadocsCollectionOptions<Plugins> {
-  now?: () => Date;
-}
 
 type LumePageData<Data extends Record<string, unknown> = Record<string, unknown>> = Data & {
   title: string;
@@ -41,12 +31,110 @@ type LumePageData<Data extends Record<string, unknown> = Record<string, unknown>
   structuredData: CompiledBody['structuredData'];
 };
 
-type PluginsOf<Option> = Option extends FumadocsCollectionOptions<infer Plugins> ? Plugins : [];
+type LumeLoaderStorage<Data extends Record<string, unknown>> = ContentStorage<
+  ContentStoragePageFile<undefined, LumePageData<Data>>,
+  ContentStorageMetaFile<undefined, MetaData>
+>;
+
+type LumeLoaderOptions<Data extends Record<string, unknown>> = LoaderOptions<
+  LumeLoaderStorage<Data>,
+  I18nConfig | undefined
+>;
+
+type InferCollectionData<Collection extends CompiledCollection> = Collection extends CompiledCollection<infer Data>
+  ? Data
+  : never;
+
+type InferCollectionI18n<
+  Collection extends CompiledCollection,
+  RuntimeI18n extends I18nConfig | undefined,
+> = Collection extends { i18n: CompiledI18nConfig }
+  ? CompiledI18nConfig
+  : RuntimeI18n extends I18nConfig
+    ? CompiledI18nConfig
+    : Collection extends { i18n?: undefined }
+      ? undefined
+      : CompiledI18nConfig | undefined;
+
+type LumeLoaderOutput<
+  Collection extends CompiledCollection,
+  Plugins extends readonly AnyLumePlugin[],
+  RuntimeI18n extends I18nConfig | undefined,
+> = InferCollectionI18n<Collection, RuntimeI18n> extends infer I18n
+  ? I18n extends I18nConfig
+    ? LoaderOutput<{
+      page: Page<undefined, LumePageData<InferCollectionData<Collection> & InferPluginData<Plugins>>>;
+      meta: Meta<undefined, MetaData>;
+      i18n: I18n;
+      source: undefined;
+    }>
+    : LoaderOutput<{
+      page: Page<undefined, LumePageData<InferCollectionData<Collection> & InferPluginData<Plugins>>>;
+      meta: Meta<undefined, MetaData>;
+      i18n: undefined;
+      source: undefined;
+    }>
+  : never;
+
+export interface FumadocsCollectionFactory<
+  Collection extends CompiledCollection,
+  Plugins extends readonly AnyLumePlugin[] = [],
+  RuntimeI18n extends I18nConfig | undefined = undefined,
+> {
+  getSource(): Promise<LumeLoaderOutput<Collection, Plugins, RuntimeI18n>>;
+}
+
+type InferSingleCollection<Content extends CompiledContent> =
+  Content['collections'][keyof Content['collections']];
+
+export type { CompiledContent } from './types.js';
+
+export interface FumadocsCollectionOptions<
+  Data extends Record<string, unknown> = Record<string, unknown>,
+  Plugins extends readonly AnyLumePlugin[] = readonly AnyLumePlugin[],
+> {
+  /** Compatibility fallback for schema v2 output created before baseUrl was persisted. */
+  baseUrl?: string;
+  /** Official Fumadocs config; checked against the compiled i18n contract when both are present. */
+  i18n?: I18nConfig;
+  /** Override the public URL for pages and page-tree nodes. */
+  url?: LumeLoaderOptions<Data & InferPluginData<Plugins>>['url'];
+  /** Override public slugs after visibility filtering; undefined falls back to compiled slugs. */
+  slugs?: LumeLoaderOptions<Data & InferPluginData<Plugins>>['slugs'];
+  /** Official page-tree options. `url` is owned by the top-level option to prevent drift. */
+  pageTree?: Omit<NonNullable<LumeLoaderOptions<Data & InferPluginData<Plugins>>['pageTree']>, 'url'>;
+  /** Resolve page, folder, separator, and link icon names. */
+  icon?: LumeLoaderOptions<Data & InferPluginData<Plugins>>['icon'];
+  /** lume-cms compile/runtime plugins, validated against the artifact. */
+  plugins?: Plugins;
+  /** Official Fumadocs `plugins` option, renamed to avoid colliding with lume-cms plugins. */
+  loaderPlugins?: LumeLoaderOptions<Data & InferPluginData<Plugins>>['plugins'];
+}
+
+interface FumadocsSourcesOptions<Collections extends Record<string, FumadocsCollectionOptions<any, any>>> {
+  now?: () => Date;
+  collections: Collections;
+}
+
+export interface FumadocsSourceOptions<
+  Data extends Record<string, unknown> = Record<string, unknown>,
+  Plugins extends readonly AnyLumePlugin[] = [],
+> extends FumadocsCollectionOptions<Data, Plugins> {
+  now?: () => Date;
+}
+
+type PluginsOf<Option> = Option extends FumadocsCollectionOptions<any, infer Plugins>
+  ? Plugins
+  : [];
+type RuntimeI18nOf<Option> = Option extends { i18n?: infer RuntimeI18n }
+  ? Extract<RuntimeI18n, I18nConfig | undefined>
+  : undefined;
 
 /** Preserve each collection's plugin tuple while defining a nested record. */
-export function collection<const Plugins extends readonly AnyLumePlugin[]>(
-  options: FumadocsCollectionOptions<Plugins>,
-): FumadocsCollectionOptions<Plugins> {
+export function collection<
+  Data extends Record<string, unknown> = Record<string, unknown>,
+  const Plugins extends readonly AnyLumePlugin[] = [],
+>(options: FumadocsCollectionOptions<Data, Plugins>): FumadocsCollectionOptions<Data, Plugins> {
   return options;
 }
 
@@ -92,16 +180,23 @@ function assertPluginMatch(compiled: CompiledCollection, plugins: readonly AnyLu
 }
 
 function createCollectionSource<
-  Data extends Record<string, unknown>,
+  const Collection extends CompiledCollection,
   const Plugins extends readonly AnyLumePlugin[],
+  const RuntimeI18n extends I18nConfig | undefined = undefined,
 >(
   name: string,
-  compiled: CompiledCollection<Data>,
-  options: FumadocsCollectionOptions<Plugins>,
+  compiled: Collection,
+  options: Omit<FumadocsCollectionOptions<InferCollectionData<Collection>, Plugins>, 'i18n'> & {
+    i18n?: RuntimeI18n;
+  },
   currentTime: () => number,
-) {
+): FumadocsCollectionFactory<Collection, Plugins, RuntimeI18n> {
+  type Data = InferCollectionData<Collection>;
   const plugins = options.plugins ?? [] as unknown as Plugins;
   assertPluginMatch(compiled, plugins, name);
+  if (options.pageTree && 'url' in options.pageTree) {
+    throw new TypeError('pageTree.url is unsupported; use the top-level url option');
+  }
   const compiledBaseUrl = compiled.baseUrl === undefined ? undefined : normalizeBaseUrl(compiled.baseUrl);
   const fallbackBaseUrl = options.baseUrl === undefined ? undefined : normalizeBaseUrl(options.baseUrl);
   if (compiledBaseUrl && fallbackBaseUrl && compiledBaseUrl !== fallbackBaseUrl) {
@@ -118,7 +213,11 @@ function createCollectionSource<
   if (compiledI18n && runtimeI18n && JSON.stringify(compiledI18n) !== JSON.stringify(runtimeI18n)) {
     throw new TypeError(`Runtime i18n config does not match compiled i18n config for collection ${JSON.stringify(name)}`);
   }
-  const i18n = compiledI18n;
+  const i18n = compiledI18n as InferCollectionI18n<Collection, RuntimeI18n>;
+  const compiledSlugs = new Map(compiled.entries.map((entry) => [entry.path, entry.slug]));
+  const loaderSlugs: LumeLoaderOptions<Data & InferPluginData<Plugins>>['slugs'] = options.slugs
+    ? (file) => options.slugs?.(file) ?? compiledSlugs.get(file.path)
+    : undefined;
 
   type SourceConfig = {
     pageData: LumePageData<Data & InferPluginData<Plugins>>;
@@ -142,20 +241,23 @@ function createCollectionSource<
           return (a.locale ?? '').localeCompare(b.locale ?? '')
             || a.slug.join('/').localeCompare(b.slug.join('/'));
         })
-        .map((entry) => ({
-        type: 'page' as const,
-        path: entry.path,
-        slugs: entry.slug,
-        data: {
-          ...entry.data,
-          title: typeof entry.data.title === 'string' ? entry.data.title : entry.slug.join('/') || 'index',
-          body: bodyComponent(entry.body),
-          content: entry.body.markdown,
-          toc: entry.body.toc,
-          structuredData: entry.body.structuredData,
-          ...Object.assign({}, ...plugins.map((plugin) => plugin.runtime?.pageData?.(entry) ?? {})),
-        } as LumePageData<Data & InferPluginData<Plugins>>,
-        })),
+        .map((entry) => {
+          const data = {
+            ...entry.data,
+            title: typeof entry.data.title === 'string' ? entry.data.title : entry.slug.join('/') || 'index',
+            body: bodyComponent(entry.body),
+            content: entry.body.markdown,
+            toc: entry.body.toc,
+            structuredData: entry.body.structuredData,
+            ...Object.assign({}, ...plugins.map((plugin) => plugin.runtime?.pageData?.(entry) ?? {})),
+          } as LumePageData<Data & InferPluginData<Plugins>>;
+          return {
+            type: 'page' as const,
+            path: entry.path,
+            ...(loaderSlugs ? {} : { slugs: entry.slug }),
+            data,
+          };
+        }),
     ];
   }
 
@@ -171,6 +273,10 @@ function createCollectionSource<
     return dynamicLoader(source, {
       baseUrl,
       i18n,
+      url: options.url,
+      slugs: loaderSlugs,
+      pageTree: options.pageTree,
+      icon: options.icon,
       plugins: options.loaderPlugins,
     });
   }
@@ -219,12 +325,12 @@ function createCollectionSource<
     return generation.value;
   }
 
-  return { getSource };
+  return { getSource } as unknown as FumadocsCollectionFactory<Collection, Plugins, RuntimeI18n>;
 }
 
 export function createFumadocsSources<
   Data extends Record<string, unknown>,
-  const Collections extends Record<string, FumadocsCollectionOptions>,
+  const Collections extends Record<string, FumadocsCollectionOptions<any, any>>,
 >(content: CompiledContent<Data>, options: FumadocsSourcesOptions<Collections>) {
   assertCompiledContent(content);
   const compiledNames = Object.keys(content.collections).sort();
@@ -256,7 +362,11 @@ export function createFumadocsSources<
     name,
     createCollectionSource(name, content.collections[name]!, options.collections[name]!, currentTime),
   ])) as {
-    [Name in keyof Collections]: ReturnType<typeof createCollectionSource<Data, PluginsOf<Collections[Name]>>>;
+    [Name in keyof Collections]: FumadocsCollectionFactory<
+      CompiledCollection<Data>,
+      PluginsOf<Collections[Name]>,
+      RuntimeI18nOf<Collections[Name]>
+    >;
   };
 
   async function getAllSources() {
@@ -276,17 +386,26 @@ export function createFumadocsSources<
 
 /** Backward-compatible single-collection facade. */
 export function createFumadocsSource<
-  Data extends Record<string, unknown>,
+  const Content extends CompiledContent,
   const Plugins extends readonly AnyLumePlugin[] = [],
->(content: CompiledContent<Data>, options: FumadocsSourceOptions<Plugins> = {}) {
+  const RuntimeI18n extends I18nConfig | undefined = undefined,
+>(
+  content: Content,
+  options: Omit<FumadocsSourceOptions<InferCollectionData<InferSingleCollection<Content>>, Plugins>, 'i18n'> & {
+    i18n?: RuntimeI18n;
+  } = {},
+): FumadocsCollectionFactory<InferSingleCollection<Content>, Plugins, RuntimeI18n> {
   assertCompiledContent(content);
   const names = Object.keys(content.collections);
   if (names.length !== 1) {
     throw new TypeError(`createFumadocsSource() requires exactly one compiled collection; found ${names.length}. Use createFumadocsSources().`);
   }
   const name = names[0]!;
-  return createFumadocsSources(content, {
-    now: options.now,
-    collections: { [name]: collection(options) },
-  }).sources[name]!;
+  const compiled = content.collections[name]! as InferSingleCollection<Content>;
+  const now = options.now ?? (() => new Date());
+  return createCollectionSource(name, compiled, options, () => {
+    const value = now().getTime();
+    if (!Number.isFinite(value)) throw new TypeError('The injected clock returned an invalid Date');
+    return value;
+  });
 }
