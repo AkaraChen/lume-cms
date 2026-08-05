@@ -1,26 +1,20 @@
 import 'server-only';
 
-import { run } from '@mdx-js/mdx';
 import { dynamicLoader } from 'fumadocs-core/source/dynamic';
-import * as runtime from 'react/jsx-runtime';
-import type { ComponentType } from 'react';
+import type { LoaderPluginOption } from 'fumadocs-core/source';
 import { createContentSource, type ContentSourceOptions } from './source.js';
+import { evaluateCompiledBody } from './mdx-runtime.js';
 import type { CompiledBody, CompiledContent } from './types.js';
 
 export interface FumadocsSourceOptions extends ContentSourceOptions {
   baseUrl?: string;
   maxStaleMs?: number;
+  plugins?: LoaderPluginOption[];
 }
 
 /** Evaluate trusted, build-produced MDX on the server and return its React component. */
-export async function getMdxComponent(
-  body: CompiledBody,
-): Promise<ComponentType<{ components?: Record<string, ComponentType<any>> }>> {
-  if (body.format !== 'mdx' || !body.code) {
-    throw new TypeError('getMdxComponent() requires a compiled MDX body');
-  }
-  const module = await run(body.code, { ...runtime, baseUrl: import.meta.url });
-  return module.default as ComponentType<{ components?: Record<string, ComponentType<any>> }>;
+export async function getMdxComponent(body: CompiledBody) {
+  return evaluateCompiledBody(body);
 }
 
 export function createFumadocsSource<Data extends Record<string, unknown>>(
@@ -36,6 +30,7 @@ export function createFumadocsSource<Data extends Record<string, unknown>>(
   const contentSource = createContentSource(content, { now });
   const loader = dynamicLoader(contentSource.toDynamicSource(), {
     baseUrl: options.baseUrl ?? '/',
+    plugins: options.plugins,
   });
   let validUntil = -Infinity;
   let revision = 0;

@@ -1,4 +1,6 @@
 import type { DynamicSource, MetaData } from 'fumadocs-core/source';
+import type { ComponentType } from 'react';
+import { createCompiledBodyComponent } from './mdx-runtime.js';
 import type {
   CompiledContent,
   CompiledEntry,
@@ -18,7 +20,17 @@ export interface ContentSource<Data extends Record<string, unknown> = Record<str
   generateParams(): Array<{ slug: string[] }>;
   nextTransitionAt(): number | null;
   toDynamicSource(): DynamicSource<{
-    pageData: Data & { title: string; body: PublicEntry<Data>['body']; publishDate: string | null };
+    pageData: Omit<Data, 'title' | 'description' | 'icon' | 'full' | 'body' | 'content' | 'toc' | 'structuredData' | 'publishDate'> & {
+      title: string;
+      description?: string;
+      icon?: string;
+      full?: boolean;
+      body: ComponentType<{ components?: Record<string, any> }>;
+      content: string;
+      toc: PublicEntry<Data>['body']['toc'];
+      structuredData: NonNullable<PublicEntry<Data>['body']['structuredData']>;
+      publishDate: string | null;
+    };
     metaData: MetaData;
   }>;
 }
@@ -30,6 +42,7 @@ function toPublic<Data extends Record<string, unknown>>(
     id: entry.id,
     slug: [...entry.slug],
     sourcePath: entry.sourcePath,
+    virtualPath: entry.virtualPath,
     publishDate: entry.publishDate,
     data: { ...entry.data },
     body: {
@@ -103,17 +116,27 @@ export function createContentSource<Data extends Record<string, unknown>>(
     toDynamicSource() {
       return {
         files: () =>
-          getEntries().map((entry) => ({
-            type: 'page' as const,
-            path: `${entry.id}.mdx`,
-            slugs: entry.slug,
-            data: {
-              ...entry.data,
-              title: typeof entry.data.title === 'string' ? entry.data.title : entry.id,
-              body: entry.body,
-              publishDate: entry.publishDate,
-            },
-          })),
+          [
+            ...getEntries().map((entry) => ({
+              type: 'page' as const,
+              path: entry.virtualPath ?? entry.sourcePath.replace(/^.*?content\//, ''),
+              slugs: entry.slug,
+              data: {
+                ...entry.data,
+                title: typeof entry.data.title === 'string' ? entry.data.title : entry.id,
+                body: createCompiledBodyComponent(entry.body),
+                content: entry.body.markdown,
+                toc: entry.body.toc,
+                structuredData: entry.body.structuredData ?? { headings: [], contents: [] },
+                publishDate: entry.publishDate,
+              },
+            })),
+            ...(content.metas ?? []).map((meta) => ({
+              type: 'meta' as const,
+              path: meta.path,
+              data: { ...meta.data },
+            })),
+          ],
       };
     },
   };

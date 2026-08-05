@@ -1,22 +1,39 @@
 import { loadConfig } from 'c12';
 import * as v from 'valibot';
-import type { GenericSchema } from 'valibot';
+import type { StandardSchemaV1 } from '@standard-schema/spec';
 
 export const defaultFrontmatterSchema = v.looseObject({
   title: v.string(),
   description: v.optional(v.string()),
+  icon: v.optional(v.string()),
+  full: v.optional(v.boolean()),
   slug: v.optional(v.string()),
   publishDate: v.optional(v.string()),
   draft: v.optional(v.boolean(), false),
   tags: v.optional(v.array(v.string())),
 });
 
+export const defaultMetaSchema = v.looseObject({
+  title: v.optional(v.string()),
+  pages: v.optional(v.array(v.string())),
+  pagesIndex: v.optional(v.string()),
+  description: v.optional(v.string()),
+  root: v.optional(v.boolean()),
+  defaultOpen: v.optional(v.boolean()),
+  collapsible: v.optional(v.boolean()),
+  icon: v.optional(v.string()),
+});
+
+export type ContentSchema = StandardSchemaV1<unknown, Record<string, unknown>>;
+
 export interface LumeConfig {
   content?: {
     include?: string[];
     exclude?: string[];
     root?: string;
-    schema?: GenericSchema<unknown, Record<string, unknown>>;
+    /** Any Standard Schema implementation, including Valibot 1 and Zod 4. */
+    schema?: ContentSchema;
+    metaSchema?: ContentSchema;
   };
   output?: string;
   defaultTimezone?: string;

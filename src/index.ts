@@ -5,6 +5,7 @@ export type { ContentSource, ContentSourceOptions } from './source.js';
 export type {
   CompiledBody,
   CompiledContent,
+  CompiledMeta,
   NavigationNode,
   PublicEntry,
   TocItem,

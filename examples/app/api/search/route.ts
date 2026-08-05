@@ -1,12 +1,6 @@
-import { getSource } from '../../source';
+import { getSource } from '@/lib/source';
+import { createFromSource } from 'fumadocs-core/search/server';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
-  const pages = (await getSource()).getPages().map((page) => ({
-    title: page.data.title,
-    url: page.url,
-    content: page.data.body.markdown,
-  }));
-  return Response.json(pages);
-}
+export const { GET } = createFromSource(getSource);

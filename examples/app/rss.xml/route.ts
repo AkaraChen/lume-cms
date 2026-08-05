@@ -1,4 +1,4 @@
-import { getSource } from '../source';
+import { getSource } from '@/lib/source';
 
 export const dynamic = 'force-dynamic';
 

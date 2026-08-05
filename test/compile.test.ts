@@ -5,8 +5,10 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it } from 'vitest';
 import * as v from 'valibot';
+import type { StandardSchemaV1 } from '@standard-schema/spec';
 import { compileContent, serializeCompiledContent } from '../src/compile.js';
 import { getMdxComponent } from '../src/fumadocs.js';
+import { createContentSource } from '../src/source.js';
 
 const dirs: string[] = [];
 
@@ -64,6 +66,49 @@ describe('compileContent', () => {
       write: false,
       config: { content: { schema: v.looseObject({ title: v.string(), category: v.literal('docs') }) } },
     })).rejects.toThrow(/content\/bad\.md: invalid frontmatter/);
+  });
+
+  it('accepts the library-neutral Standard Schema interface', async () => {
+    const cwd = await fixture({ 'content/page.md': '---\ntitle: Standard\n---\nBody' });
+    const schema = {
+      '~standard': {
+        version: 1 as const,
+        vendor: 'test',
+        validate(value: unknown) {
+          if (value && typeof value === 'object' && typeof (value as Record<string, unknown>).title === 'string') {
+            return { value: value as Record<string, unknown> };
+          }
+          return { issues: [{ message: 'title is required' }] };
+        },
+      },
+    } satisfies StandardSchemaV1<unknown, Record<string, unknown>>;
+
+    const result = await compileContent({ cwd, write: false, config: { content: { schema } } });
+    expect(result.entries[0]?.data.title).toBe('Standard');
+  });
+
+  it('compiles starter metadata, structured search data, and a root index page', async () => {
+    const cwd = await fixture({
+      'content/docs/index.mdx': '---\ntitle: Home\n---\n# Searchable heading\nBody',
+      'content/docs/meta.json': JSON.stringify({ title: 'Docs', pages: ['index'] }),
+    });
+    const result = await compileContent({
+      cwd,
+      write: false,
+      config: { content: { root: 'content/docs', include: ['content/docs/**/*.{mdx,json}'] } },
+    });
+    expect(result.entries[0]).toMatchObject({ id: 'index', slug: [], virtualPath: 'index.mdx' });
+    expect(result.entries[0]?.body.structuredData?.headings[0]?.content).toBe('Searchable heading');
+    expect(result.metas).toEqual([{
+      path: 'meta.json',
+      sourcePath: 'content/docs/meta.json',
+      data: { title: 'Docs', pages: ['index'] },
+    }]);
+    const files = await createContentSource(result).toDynamicSource().files();
+    expect(files.map((file) => file.type)).toEqual(['page', 'meta']);
+    const page = files.find((file) => file.type === 'page');
+    expect(typeof page?.data.body).toBe('function');
+    expect(page?.data.structuredData).toBeDefined();
   });
 
   it('rejects invalid or offset-less dates unless defaultTimezone is configured', async () => {

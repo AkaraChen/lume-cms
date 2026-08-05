@@ -15,16 +15,18 @@ function entry(id: string, publishAtMs: number | null, draft = false) {
   };
 }
 
-function sixConsumerSets(source: Awaited<ReturnType<ReturnType<typeof createFumadocsSource>['getSource']>>) {
+function starterConsumerSets(source: Awaited<ReturnType<ReturnType<typeof createFumadocsSource>['getSource']>>) {
   const candidates = ['published', 'scheduled', 'draft'];
   const direct = () => candidates.filter((slug) => source.getPage([slug])).sort();
   const enumerated = () => source.getPages().map((page) => page.slugs.join('/')).sort();
+  const tree = JSON.stringify(source.getPageTree());
   return {
     detail: direct(),
-    list: enumerated(),
-    rss: enumerated(),
-    sitemap: enumerated(),
+    pageTree: candidates.filter((slug) => tree.includes(`/${slug}`)).sort(),
     search: enumerated(),
+    llmsIndex: enumerated(),
+    llmsFull: enumerated(),
+    markdownProxy: direct(),
     og: direct(),
   };
 }
@@ -51,18 +53,20 @@ describe('createFumadocsSource', () => {
     expect((await source.getSource()).getPage(['scheduled'])?.data.title).toBe('Scheduled');
   });
 
-  it('keeps the visible slug set identical across all six consumer paths', async () => {
+  it('keeps the visible slug set identical across all seven starter paths plus RSS and sitemap', async () => {
     let now = 19;
     const source = createFumadocsSource({
       schemaVersion: 1,
       entries: [entry('published', 10), entry('scheduled', 20), entry('draft', null, true)],
     }, { now: () => new Date(now), maxStaleMs: 86_400_000 });
 
-    expect(Object.values(sixConsumerSets(await source.getSource())))
-      .toEqual(Array(6).fill(['published']));
+    const before = await source.getSource();
+    expect(Object.values(starterConsumerSets(before))).toEqual(Array(7).fill(['published']));
+    expect(before.getPages().map((page) => page.slugs.join('/'))).toEqual(['published']); // RSS and sitemap
     now = 20;
-    expect(Object.values(sixConsumerSets(await source.getSource())))
-      .toEqual(Array(6).fill(['published', 'scheduled']));
+    const after = await source.getSource();
+    expect(Object.values(starterConsumerSets(after))).toEqual(Array(7).fill(['published', 'scheduled']));
+    expect(after.getPages().map((page) => page.slugs.join('/')).sort()).toEqual(['published', 'scheduled']);
   });
 
   it('coalesces concurrent refreshes at the same publication boundary', async () => {

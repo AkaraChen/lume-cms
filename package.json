@@ -4,7 +4,9 @@
   "description": "Runtime-aware content source for Fumadocs",
   "type": "module",
   "license": "MIT",
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "bin": {
     "lume-cms": "./dist/cli.mjs"
   },
@@ -40,6 +42,7 @@
   },
   "dependencies": {
     "@mdx-js/mdx": "^3.1.1",
+    "@standard-schema/spec": "^1.1.0",
     "c12": "^3.3.3",
     "date-fns-tz": "^3.2.0",
     "fast-glob": "^3.3.3",
