@@ -105,6 +105,35 @@ export interface RuntimeHooks {
   timeDependent?: boolean;
 }
 
+export interface TimeGateOptions {
+  reason: string;
+  /** Transition instant for an entry, or null when the gate does not apply. */
+  at(entry: ResolvedEntry): number | null;
+  /** Skip cache invalidation for entries that cannot become publicly visible. */
+  invalidate?(entry: ResolvedEntry): boolean;
+  /** Hide at and after the transition instead of before it. */
+  after?: boolean;
+}
+
+/** Derive runtime visibility and invalidation from one time-bound declaration. */
+export function defineTimeGate(options: TimeGateOptions): RuntimeHooks {
+  return {
+    timeDependent: true,
+    resolve(entry, { nowMs }, next) {
+      next();
+      const at = options.at(entry);
+      if (at !== null && (options.after ? nowMs >= at : nowMs < at)) entry.hide(options.reason);
+    },
+    deadline(entries, { nowMs }, next) {
+      return entries
+        .filter((entry) => options.invalidate?.(entry) !== false)
+        .map(options.at)
+        .filter((at): at is number => at !== null && at > nowMs)
+        .reduce((earliest, at) => Math.min(earliest, at), next());
+    },
+  };
+}
+
 export interface LumePlugin<Frontmatter extends object = object, Data extends object = object> {
   id: string;
   frontmatter?: {
