@@ -184,6 +184,43 @@ export const { getSource: getBlogSource } = sources.blog;
 
 Plugins run on both sides of the JSON boundary, so each compile collection and runtime source must register the same ordered plugin list. The compiled JSON records plugin ids and the runtime fails immediately if either side is missing, extra, duplicated, or reordered. Fumadocs loader plugins can still be supplied separately through `loaderPlugins`.
 
+### Official loader options
+
+Each collection source covers the complete `loader()` option surface from the locked Fumadocs version:
+
+| Official option | lume-cms API | Ownership and behavior |
+| --- | --- | --- |
+| `baseUrl` | collection compile-time `baseUrl`; optional matching runtime `baseUrl` | persisted collection truth; conflicting runtime duplication fails |
+| `i18n` | compile-time `i18n`; optional matching runtime `i18n` | persisted compiler truth; runtime cannot enable or change it |
+| `url(slugs, locale)` | runtime `url` | authoritative for page records and page-tree nodes; overrides default `baseUrl` URL generation |
+| `slugs(file)` | runtime `slugs` | official callback receives only visible page files; its result replaces compiled fallback slugs in every loader read |
+| `pageTree` | runtime `pageTree` | `idPrefix`, `noRef`, `generateFallback`, `transformers`, `context`, and `sort` pass through |
+| `icon` | runtime `icon` | resolves page, folder, separator, and external-link icon names |
+| `plugins` | runtime `loaderPlugins` | array/nested options and the official `({ typedPlugin }) => [...]` form pass through; renamed to avoid the lume plugin slot |
+
+The official object-form `source` is intentionally unavailable: lume-cms owns each collection's `DynamicSource` so every page enters Fumadocs only after the one draft/deadline visibility filter. `pageTree.url` is also rejected at the type and runtime boundaries; use the top-level `url` callback so page records and navigation cannot acquire different URLs. Page-tree transformers and loader plugins are deliberate low-level escape hatches: they run on the already-filtered virtual storage and must not synthesize unfiltered content or mutate node URLs away from the top-level callback.
+
+For example:
+
+```ts
+export const { getSource } = createFumadocsSource(content, {
+  url: (slugs, locale) => `/${[locale, 'knowledge', ...slugs].filter(Boolean).join('/')}`,
+  slugs: (file) => typeof file.data.route === 'string'
+    ? file.data.route.split('/').filter(Boolean)
+    : undefined,
+  icon: (name) => name ? icons[name] : undefined,
+  pageTree: {
+    sort: { by: 'name', locales: ['en', 'zh'] },
+    transformers: [myTreeTransformer],
+  },
+  loaderPlugins: ({ typedPlugin }) => [typedPlugin(myLoaderPlugin)],
+});
+```
+
+Runtime `url` and `slugs` functions cannot be serialized into deterministic JSON. The compiler therefore owns file-path/frontmatter slugs and default `baseUrl` reference diagnostics, while these callbacks are the sole public loader override after visibility filtering. Relative source-file links remain statically checkable; custom public URLs cannot be inferred by `--strict`, so links using a custom URL scheme require consumer-level tests. Slug aliases and redirects are intentionally not inferred here and remain KIT-625's scope.
+
+Fumadocs loader plugins are a distinct runtime-only pipeline under `loaderPlugins`.
+
 Custom plugins can use `definePlugin` from `lume-cms/config`. A plugin frontmatter schema must output only fields owned by that plugin; those validated fields are removed from user page data and passed to its `entry` hook, while unvalidated input is available separately as `rawFrontmatter`. Compile hooks run as `setup` once, `entry` for each file, then `finalize` once; per-entry results are isolated under `entry.ext[plugin.id]`. Runtime hooks can narrow visibility, contribute ordering and page data, and provide the next cache deadline. Registration order is hook order, visibility hooks combine with AND, and duplicate ids fail immediately.
 
 The generated JSON intentionally retains future entries and their bodies. `createFumadocsSource()` applies its only visibility predicate while producing Fumadocs `DynamicSource.files()`. The page tree, search index, navigation and every page lookup derive from those filtered files. Advancing an injected clock across a deadline changes all reads without compiling JSON or rebuilding the app.

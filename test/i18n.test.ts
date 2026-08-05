@@ -114,6 +114,17 @@ describe('Fumadocs i18n source contract', () => {
     expect(after.getPage(['localized-draft'], 'zh')?.data.title).toBe('English public');
     expect(after.getPage(['secret'], 'en')).toBeUndefined();
     expect(JSON.stringify(after.getPageTree('zh'))).toContain('/zh/docs/secret');
+
+    const customized = await createFumadocsSource(content, {
+      now: () => new Date(now),
+      plugins: [schedule()],
+      url: (slugs, locale) => `/${locale}/knowledge/${slugs.join('/')}`,
+      slugs: (file) => file.path.startsWith('guide/setup.') ? ['custom-setup'] : undefined,
+    }).getSource();
+    expect(customized.getPage(['custom-setup'], 'en')?.url).toBe('/en/knowledge/custom-setup');
+    expect(customized.getPage(['custom-setup'], 'zh')?.url).toBe('/zh/knowledge/custom-setup');
+    expect(customized.getPage(['guide', 'setup'], 'zh')).toBeUndefined();
+    expect(JSON.stringify(customized.getPageTree('zh'))).toContain('/zh/knowledge/custom-setup');
   });
 
   it('supports dir parsing, locale-isolated slugs, no fallback, and hidden default prefixes', async () => {
