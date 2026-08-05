@@ -1,5 +1,7 @@
 import { createFumadocsSource, type CompiledContent } from '../dist/index.mjs';
 import type { Root } from 'fumadocs-core/page-tree';
+// @ts-expect-error composeOnion is an internal implementation detail.
+import { composeOnion } from '../dist/config.mjs';
 
 type Equal<Left, Right> = (<Value>() => Value extends Left ? 1 : 2) extends
   (<Value>() => Value extends Right ? 1 : 2)
@@ -60,3 +62,4 @@ async function verifyPublishedPageTreeTypes() {
 }
 
 void verifyPublishedPageTreeTypes;
+void composeOnion;
