@@ -67,7 +67,7 @@ It invalidates at that boundary, so a long fallback TTL cannot hold a newly publ
 
 ## Next.js requirements
 
-Version 1 requires request-time rendering with `export const dynamic = 'force-dynamic'` for page details, layouts/navigation, RSS, search, metadata/OG, text exports, and sitemap. Keep `dynamicParams = true`; otherwise a slug absent from build-time params stays unreachable after publication. Every server component and route handler must run `await getSource()` inside the request; never retain an awaited loader instance at module scope. Fumadocs search should receive the factory itself as `createFromSource(getSource)`, so it obtains the current loader instance when indexing.
+Version 1 requires request-time rendering with `export const dynamic = 'force-dynamic'` for page details, layouts/navigation, RSS, search, metadata/OG, text exports, and sitemap. Every server component and route handler must run `await getSource()` inside the request; never retain an awaited loader instance at module scope. Fumadocs search should receive the factory itself as `createFromSource(getSource)`, so it obtains the current loader instance when indexing.
 
 Sitemaps are metadata routes and static by default, so `app/sitemap.ts` must also export `dynamic = 'force-dynamic'`. All consumers use request-time visibility; do not add a static route or an additional cache around the source. The `examples/` directory is the official Create Fumadocs starter with only the source wiring changed, plus the minimal RSS and sitemap routes required by this package's acceptance criteria.
 
