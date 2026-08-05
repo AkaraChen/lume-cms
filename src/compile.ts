@@ -13,7 +13,6 @@ import {
   structure,
 } from 'fumadocs-core/mdx-plugins';
 import matter from 'gray-matter';
-import type { Pluggable } from 'unified';
 import { parse as parseYaml } from 'yaml';
 import {
   defaultFrontmatterSchema,
@@ -21,7 +20,6 @@ import {
   loadLumeConfig,
   type ContentSchema,
   type LumeConfig,
-  type PluginOption,
 } from './config.js';
 import type { CompiledBody, CompiledContent, CompiledEntry, CompiledMeta } from './types.js';
 
@@ -64,31 +62,21 @@ function textOf(node: unknown): string {
   return children?.map(textOf).join('') ?? '';
 }
 
-/** Append extra plugins, or hand the official defaults to a function for full control. */
-function resolvePlugins(defaults: Pluggable[], configured?: PluginOption): Pluggable[] {
-  if (typeof configured === 'function') return configured(defaults);
-  return configured ? [...defaults, ...configured] : defaults;
-}
-
 /**
- * One pipeline for Markdown and MDX, matching the `fumadocs-mdx` default preset.
- * Headings ids, the table of contents and syntax highlighting all come from Fumadocs.
- *
- * `rehypeToc` always runs last so the table of contents observes the final tree —
- * custom rehype plugins extend the pipeline before it, never after.
+ * One pipeline for Markdown and MDX, fixed to the `fumadocs-mdx` default preset.
+ * Heading ids, the table of contents and syntax highlighting all come from Fumadocs.
  */
-async function compileBody(source: string, config: LumeConfig): Promise<CompiledBody> {
+async function compileBody(source: string): Promise<CompiledBody> {
   const file = await compileMdx(source, {
     outputFormat: 'function-body',
     development: false,
-    remarkPlugins: resolvePlugins(
-      [remarkGfm, [remarkHeading, { generateToc: false }], [remarkImage, { useImport: false }], remarkNpm],
-      config.remarkPlugins,
-    ),
-    rehypePlugins: [
-      ...resolvePlugins([rehypeCode], config.rehypePlugins),
-      [rehypeToc, { exportToc: { as: 'data' } }],
+    remarkPlugins: [
+      remarkGfm,
+      [remarkHeading, { generateToc: false }],
+      [remarkImage, { useImport: false }],
+      remarkNpm,
     ],
+    rehypePlugins: [rehypeCode, [rehypeToc, { exportToc: { as: 'data' } }]],
   });
   const toc = (file.data.rehypeToc ?? []).map((item) => ({
     title: textOf(item.title),
@@ -206,7 +194,7 @@ export async function compileContent(options: CompileOptions = {}): Promise<Comp
         ...parsePublishDate(data.publishDate, sourcePath, config.defaultTimezone),
         draft: data.draft === true,
         data,
-        body: await compileBody(candidate.markdown, config),
+        body: await compileBody(candidate.markdown),
       });
     }
   }

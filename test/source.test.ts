@@ -41,7 +41,6 @@ describe('createContentSource', () => {
     });
     expect(source.getEntry('hidden/nested')).toBeUndefined();
     expect(source.getEntries().map((item) => item.id)).toEqual(['public']);
-    expect(source.generateParams()).toEqual([{ slug: ['public'] }]);
     expect(JSON.stringify(await source.toDynamicSource().files())).not.toContain('hidden');
   });
 

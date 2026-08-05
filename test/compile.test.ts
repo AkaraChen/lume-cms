@@ -82,48 +82,18 @@ const answer = 42;
 \`\`\`
 `,
     });
-    let composedRemark = false;
-    let composedRehype = false;
-    const result = await compileContent({
-      cwd,
-      write: false,
-      config: {
-        remarkPlugins(defaults) {
-          composedRemark = defaults.length >= 4;
-          return defaults;
-        },
-        rehypePlugins(defaults) {
-          composedRehype = defaults.length >= 1;
-          return defaults;
-        },
-      },
-    });
+    const result = await compileContent({ cwd, write: false });
     const html = await renderBody(result);
 
-    expect(composedRemark).toBe(true);
-    expect(composedRehype).toBe(true);
     expect(html).toContain('<table>');
     expect(html).toContain('<del>removed</del>');
     expect(html).toContain('<a href="https://example.com">https://example.com</a>');
     expect(html).toContain('--shiki-light');
     expect(html).toContain('class="line"');
-  });
-
-  it('gives custom rehype plugins an extension point ahead of the TOC pass', async () => {
-    const cwd = await fixture({ 'content/page.mdx': '---\ntitle: Page\n---\n# Hello world' });
-    // A plugin appended after `rehypeToc` would rename the heading without moving
-    // the anchor, putting the table of contents back out of sync with the ids.
-    const renameHeadingIds = () => (tree: unknown) => {
-      const walk = (node: { tagName?: string; properties?: Record<string, unknown>; children?: unknown[] }) => {
-        if (node.tagName === 'h1' && node.properties) node.properties.id = 'custom-hello';
-        node.children?.forEach((child) => walk(child as typeof node));
-      };
-      walk(tree as { children?: unknown[] });
-    };
-
-    const result = await compileContent({ cwd, write: false, config: { rehypePlugins: [renameHeadingIds] } });
-    expect(result.entries[0]?.body.toc).toEqual([{ title: 'Hello world', url: '#custom-hello', depth: 1 }]);
-    expect(await renderBody(result)).toContain('id="custom-hello"');
+    // The TOC comes from `rehypeToc`, so its anchors are the rendered heading ids.
+    for (const item of result.entries[0]!.body.toc) {
+      expect(html).toContain(`id="${item.url.slice(1)}"`);
+    }
   });
 
   it('keeps one addressable path per entry across object, array and custom-slug JSON', async () => {

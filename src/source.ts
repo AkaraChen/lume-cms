@@ -39,7 +39,6 @@ export interface ContentSourceOptions {
 export interface ContentSource<Data extends Record<string, unknown> = Record<string, unknown>> {
   getEntry(slug: string | string[]): PublicEntry<Data> | undefined;
   getEntries(): PublicEntry<Data>[];
-  generateParams(): Array<{ slug: string[] }>;
   nextTransitionAt(): number | null;
   toDynamicSource(): DynamicSource<{ pageData: PageData<Data>; metaData: MetaData }>;
 }
@@ -86,9 +85,6 @@ export function createContentSource<Data extends Record<string, unknown>>(
     getEntry(slug) {
       const id = (Array.isArray(slug) ? slug : slug.split('/')).filter(Boolean).join('/') || 'index';
       return getEntries().find((entry) => entry.id === id);
-    },
-    generateParams() {
-      return getEntries().map((entry) => ({ slug: entry.slug }));
     },
     nextTransitionAt() {
       const at = nowMs();
