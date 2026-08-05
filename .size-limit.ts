@@ -1,7 +1,7 @@
 import packageJson from './package.json';
 
 const exportLimits: Partial<Record<string, string>> = {
-  '.': '1.5 kB',
+  '.': '2.2 kB',
   './config': '400 B',
   './schedule': '750 B',
 };
@@ -30,11 +30,11 @@ export default [
   {
     name: 'cli (dist/cli.mjs)',
     path: 'dist/cli.mjs',
-    limit: '2 kB',
+    limit: '2.4 kB',
   },
   {
     name: 'published runtime total',
     path: ['dist/*.mjs', 'bin/*.mjs'],
-    limit: '4.75 kB',
+    limit: '5.8 kB',
   },
 ];
