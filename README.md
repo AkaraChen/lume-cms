@@ -13,6 +13,7 @@ Create `lume.config.ts`:
 ```ts
 import * as v from 'valibot';
 import { defineConfig } from 'lume-cms/config';
+import { schedule } from 'lume-cms/schedule';
 
 export default defineConfig({
   content: {
@@ -21,15 +22,15 @@ export default defineConfig({
     schema: v.looseObject({
       title: v.string(),
       description: v.optional(v.string()),
-      publishDate: v.optional(v.string()),
       draft: v.optional(v.boolean(), false),
     }),
   },
+  plugins: [schedule()],
   output: 'content.generated.json',
 });
 ```
 
-The configuration accepts the Standard Schema interface. Valibot 1.x works directly as shown; Zod 4 and other conforming implementations can be used without an adapter. The built-in page schema includes Fumadocs' `title`, `description`, `icon`, and `full` fields plus lume's scheduling fields.
+The configuration accepts the Standard Schema interface. Valibot 1.x works directly as shown; Zod 4 and other conforming implementations can be used without an adapter. The built-in page schema includes Fumadocs' `title`, `description`, `icon`, and `full` fields. Plugin-owned fields such as `publishDate` stay out of the user schema and compiled page data.
 
 Markdown and MDX use Fumadocs' public YAML frontmatter parser and `mdxPreset()`, matching the official starter baseline: GFM, heading IDs, images, code tabs, npm install blocks, Shiki code highlighting, structured search data, and table-of-contents extraction. JSON is not a content input format. The pipeline is not configurable. The compiler stores a deterministic MDX function body in JSON. Raw HTML in Markdown is deliberately discarded; do not enable `allowDangerousHtml`/`rehype-raw` without adding an explicit sanitization policy. Run `lume-cms build` to generate stable JSON. Entries and object keys are sorted, paths are relative, line endings are stable, and no timestamp or machine path is emitted.
 
@@ -42,18 +43,24 @@ return <MDX components={getMDXComponents()} />;
 
 Only evaluate JSON produced from trusted repository content. Component evaluation is protected by `server-only`; do not expose compiled MDX code to the client.
 
-`publishDate` accepts ISO 8601 with an explicit offset or `Z`. Plain dates and invalid values fail compilation with the source path. At runtime an entry is visible exactly when `publishDate <= now`. Missing `publishDate` is immediately visible; `draft: true` is never visible.
+The independently importable `schedule()` plugin owns `publishDate`. It accepts ISO 8601 with an explicit offset or `Z`; plain dates and invalid values fail compilation with the source path. At runtime an entry is visible exactly when `publishDate <= now`. Missing `publishDate` is immediately visible; `draft: true` is never visible. Without `schedule()`, lume-cms performs no time filtering, exposes no `publishDate` page field, and orders entries by slug.
 
 ## Runtime source
 
 ```ts
 import content from './content.generated.json';
 import { createFumadocsSource } from 'lume-cms';
+import { schedule } from 'lume-cms/schedule';
 
 export const { getSource } = createFumadocsSource(content, {
   baseUrl: '/docs',
+  plugins: [schedule()],
 });
 ```
+
+Plugins run on both sides of the JSON boundary, so the compile config and runtime source must register the same ordered plugin list. The compiled JSON records plugin ids and `createFumadocsSource()` fails immediately if either side is missing, extra, duplicated, or reordered. Fumadocs loader plugins can still be supplied separately through `loaderPlugins`.
+
+Custom plugins can use `definePlugin` from `lume-cms/config`. A plugin frontmatter schema must output only fields owned by that plugin; those validated fields are removed from user page data and passed to its `entry` hook, while unvalidated input is available separately as `rawFrontmatter`. Compile hooks run as `setup` once, `entry` for each file, then `finalize` once; per-entry results are isolated under `entry.ext[plugin.id]`. Runtime hooks can narrow visibility, contribute ordering and page data, and provide the next cache deadline. Registration order is hook order, visibility hooks combine with AND, and duplicate ids fail immediately.
 
 The generated JSON intentionally retains future entries and their bodies. `createFumadocsSource()` applies its only visibility predicate while producing Fumadocs `DynamicSource.files()`. The page tree, search index, navigation and every page lookup derive from those filtered files. Advancing an injected clock across a deadline changes all reads without compiling JSON or rebuilding the app.
 

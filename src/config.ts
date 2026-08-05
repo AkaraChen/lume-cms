@@ -1,6 +1,10 @@
 import { loadConfig } from 'c12';
 import * as v from 'valibot';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
+import type { AnyLumePlugin } from './plugin.js';
+
+export { definePlugin } from './plugin.js';
+export type { AnyLumePlugin, LumePlugin } from './plugin.js';
 
 export const defaultFrontmatterSchema = v.looseObject({
   title: v.string(),
@@ -8,7 +12,6 @@ export const defaultFrontmatterSchema = v.looseObject({
   icon: v.optional(v.string()),
   full: v.optional(v.boolean()),
   slug: v.optional(v.string()),
-  publishDate: v.optional(v.string()),
   draft: v.optional(v.boolean(), false),
   tags: v.optional(v.array(v.string())),
 });
@@ -24,6 +27,7 @@ export interface LumeConfig {
     schema?: ContentSchema;
   };
   output?: string;
+  plugins?: readonly AnyLumePlugin[];
 }
 
 export function defineConfig<const T extends LumeConfig>(config: T): T {

@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
@@ -8,6 +8,14 @@ const packed = JSON.parse(execFileSync('npm', ['pack', '--dry-run', '--json'], {
 const files = new Set(packed[0]?.files?.map((file) => file.path));
 if (!files.has('bin/lume-cms.mjs')) throw new Error('Published package is missing its stable bin entry');
 if (!files.has('dist/cli.mjs')) throw new Error('Published package is missing dist/cli.mjs');
+if (!files.has('dist/schedule.mjs') || !files.has('dist/schedule.d.mts')) {
+  throw new Error('Published package is missing its schedule entry');
+}
+if (readFileSync('dist/index.mjs', 'utf8').includes('publishAtMs')) {
+  throw new Error('The core runtime bundle statically includes schedule implementation details');
+}
+const { schedule } = await import('../dist/schedule.mjs');
+if (schedule().id !== 'schedule') throw new Error('The published schedule entry is not importable');
 
 const fixture = mkdtempSync(path.join(tmpdir(), 'lume-cms-package-'));
 try {

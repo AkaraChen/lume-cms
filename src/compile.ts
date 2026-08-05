@@ -12,30 +12,12 @@ import {
   type LumeConfig,
 } from './config.js';
 import type { CompiledBody, CompiledContent, CompiledEntry } from './types.js';
-
-const OFFSET_DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/;
+import { assertPluginIds } from './plugin.js';
 
 export interface CompileOptions {
   cwd?: string;
   config?: LumeConfig;
   write?: boolean;
-}
-
-function parsePublishDate(value: unknown, sourcePath: string) {
-  if (value === undefined || value === null) return { publishDate: null, publishAtMs: null };
-  if (typeof value !== 'string') {
-    throw new Error(`${sourcePath}: publishDate must be an ISO 8601 string with Z or an offset`);
-  }
-
-  if (!OFFSET_DATE_TIME.test(value)) {
-    throw new Error(`${sourcePath}: invalid publishDate ${JSON.stringify(value)}; expected ISO 8601 with Z or an offset`);
-  }
-  const date = new Date(value);
-
-  if (!Number.isFinite(date.getTime())) {
-    throw new Error(`${sourcePath}: invalid publishDate ${JSON.stringify(value)}`);
-  }
-  return { publishDate: value, publishAtMs: date.getTime() };
 }
 
 async function compileBody(source: string): Promise<CompiledBody> {
@@ -93,6 +75,10 @@ export async function compileContent(options: CompileOptions = {}): Promise<Comp
   const config = options.config ?? (await loadLumeConfig(cwd));
   const contentRoot = path.resolve(cwd, config.content?.root ?? 'content');
   const schema = config.content?.schema ?? defaultFrontmatterSchema;
+  const plugins = config.plugins ?? [];
+  assertPluginIds(plugins);
+  const pluginContext = { cwd, config };
+  for (const plugin of plugins) await plugin.compile?.setup?.(pluginContext);
   const files = await fg(config.content?.include ?? ['content/**/*.{md,mdx,markdown}'], {
     cwd,
     ignore: config.content?.exclude,
@@ -107,22 +93,45 @@ export async function compileContent(options: CompileOptions = {}): Promise<Comp
     const contentPath = path.relative(contentRoot, absolutePath).replace(/\\/g, '/');
     const raw = await readFile(absolutePath, 'utf8');
     const parsed = frontmatter(raw);
-    const data = await validate(schema, parsed.data, sourcePath, 'frontmatter');
+    const data = { ...await validate(schema, parsed.data, sourcePath, 'frontmatter') };
     const slug = typeof data.slug === 'string' ? data.slug.split('/').filter(Boolean) : getSlugs(contentPath);
+    const ext: Record<string, unknown> = {};
+    for (const plugin of plugins) {
+      let pluginFrontmatter: Record<string, unknown> = {};
+      if (plugin.frontmatter) {
+        pluginFrontmatter = await validate(
+          plugin.frontmatter.schema,
+          parsed.data,
+          sourcePath,
+          `${plugin.id} plugin frontmatter`,
+        );
+        for (const key of Object.keys(pluginFrontmatter)) delete data[key];
+      }
+      if (plugin.compile?.entry) {
+        ext[plugin.id] = await plugin.compile.entry({
+          sourcePath,
+          contentPath,
+          slug,
+          frontmatter: pluginFrontmatter,
+          rawFrontmatter: parsed.data as Record<string, unknown>,
+        });
+      }
+    }
     entries.push({
       slug,
       path: contentPath,
-      ...parsePublishDate(data.publishDate, sourcePath),
       draft: data.draft === true,
       data,
+      ext,
       body: await compileBody(parsed.content),
     });
   }
 
   entries.sort((a, b) => a.slug.join('/').localeCompare(b.slug.join('/')));
   assertUniqueSlugs(entries);
+  for (const plugin of plugins) await plugin.compile?.finalize?.(entries, pluginContext);
 
-  const content: CompiledContent = { schemaVersion: 1, entries };
+  const content: CompiledContent = { schemaVersion: 2, plugins: plugins.map((plugin) => plugin.id), entries };
   if (options.write !== false) {
     await writeFile(path.resolve(cwd, config.output ?? 'content.generated.json'), serializeCompiledContent(content), 'utf8');
   }

@@ -4,6 +4,7 @@ export default defineConfig({
   entry: {
     index: 'src/fumadocs.ts',
     config: 'src/config.ts',
+    schedule: 'src/schedule.ts',
     cli: 'src/cli.ts',
   },
   dts: true,

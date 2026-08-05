@@ -19,14 +19,14 @@ export interface CompiledEntry<Data extends Record<string, unknown> = Record<str
   slug: string[];
   /** Path relative to the content root, the way Fumadocs addresses files. */
   path: string;
-  publishDate: string | null;
-  publishAtMs: number | null;
   draft: boolean;
   data: Data;
+  ext: Record<string, unknown>;
   body: CompiledBody;
 }
 
 export interface CompiledContent<Data extends Record<string, unknown> = Record<string, unknown>> {
-  schemaVersion: 1;
+  schemaVersion: 2;
+  plugins: string[];
   entries: CompiledEntry<Data>[];
 }

@@ -19,6 +19,10 @@
     "./config": {
       "types": "./dist/config.d.mts",
       "import": "./dist/config.mjs"
+    },
+    "./schedule": {
+      "types": "./dist/schedule.d.mts",
+      "import": "./dist/schedule.mjs"
     }
   },
   "scripts": {

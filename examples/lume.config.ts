@@ -1,5 +1,6 @@
 import * as v from 'valibot';
 import { defineConfig } from 'lume-cms/config';
+import { schedule } from 'lume-cms/schedule';
 
 export default defineConfig({
   content: {
@@ -10,9 +11,9 @@ export default defineConfig({
       description: v.optional(v.string()),
       icon: v.optional(v.string()),
       full: v.optional(v.boolean()),
-      publishDate: v.optional(v.string()),
       draft: v.optional(v.boolean(), false),
     }),
   },
+  plugins: [schedule()],
   output: 'content.generated.json',
 });

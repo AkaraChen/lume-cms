@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { createFumadocsSource } from '../src/fumadocs.js';
 import type { CompiledContent } from '../src/types.js';
+import { schedule } from '../src/schedule.js';
 
 function entry(id: string, publishAtMs: number | null, draft = false) {
   return {
     slug: [id],
     path: `${id}.md`,
-    publishDate: publishAtMs === null ? null : new Date(publishAtMs).toISOString(),
-    publishAtMs,
     draft,
     data: { title: id },
+    ext: { schedule: { publishDate: publishAtMs === null ? null : new Date(publishAtMs).toISOString(), publishAtMs } },
     body: { markdown: id, code: '', toc: [], structuredData: { headings: [], contents: [] } },
   };
 }
@@ -34,18 +34,18 @@ describe('createFumadocsSource', () => {
   it('invalidates exactly at the publication deadline', async () => {
     let now = 999;
     const content: CompiledContent = {
-      schemaVersion: 1,
+      schemaVersion: 2,
+      plugins: ['schedule'],
       entries: [{
         slug: ['scheduled'],
         path: 'scheduled.md',
-        publishDate: '1970-01-01T00:00:01Z',
-        publishAtMs: 1_000,
         draft: false,
         data: { title: 'Scheduled' },
+        ext: { schedule: { publishDate: '1970-01-01T00:00:01Z', publishAtMs: 1_000 } },
         body: { markdown: 'secret', code: '', toc: [], structuredData: { headings: [], contents: [] } },
       }],
     };
-    const source = createFumadocsSource(content, { now: () => new Date(now) });
+    const source = createFumadocsSource(content, { now: () => new Date(now), plugins: [schedule()] });
     expect((await source.getSource()).getPages()).toHaveLength(0);
     now = 1_000;
     expect((await source.getSource()).getPage(['scheduled'])?.data.title).toBe('Scheduled');
@@ -54,9 +54,10 @@ describe('createFumadocsSource', () => {
   it('keeps the visible slug set identical across all seven starter paths plus RSS and sitemap', async () => {
     let now = 19;
     const source = createFumadocsSource({
-      schemaVersion: 1,
+      schemaVersion: 2,
+      plugins: ['schedule'],
       entries: [entry('published', 10), entry('scheduled', 20), entry('draft', null, true)],
-    }, { now: () => new Date(now) });
+    }, { now: () => new Date(now), plugins: [schedule()] });
 
     const before = await source.getSource();
     expect(Object.values(starterConsumerSets(before))).toEqual(Array(7).fill(['published']));
@@ -72,13 +73,14 @@ describe('createFumadocsSource', () => {
     let entryReads = 0;
     const entries = [entry('scheduled', 20)];
     const content: CompiledContent = {
-      schemaVersion: 1,
+      schemaVersion: 2,
+      plugins: ['schedule'],
       get entries() {
         entryReads += 1;
         return entries;
       },
     };
-    const source = createFumadocsSource(content, { now: () => new Date(now) });
+    const source = createFumadocsSource(content, { now: () => new Date(now), plugins: [schedule()] });
     entryReads = 0;
 
     await Promise.all(Array.from({ length: 20 }, () => source.getSource()));
