@@ -5,13 +5,12 @@
 ## Install and configure
 
 ```sh
-pnpm add lume-cms fumadocs-core valibot
+pnpm add lume-cms fumadocs-core
 ```
 
 Create `lume.config.ts`:
 
 ```ts
-import * as v from 'valibot';
 import { defineConfig } from 'lume-cms/config';
 import { schedule } from 'lume-cms/schedule';
 
@@ -21,22 +20,11 @@ export default defineConfig({
       baseUrl: '/docs',
       root: 'content/docs',
       include: ['content/docs/**/*.{md,mdx}'],
-      schema: v.looseObject({
-        title: v.string(),
-        description: v.optional(v.string()),
-        draft: v.optional(v.boolean(), false),
-      }),
     },
     blog: {
       baseUrl: '/blog',
       root: 'content/blog',
       include: ['content/blog/**/*.{md,mdx}'],
-      schema: v.looseObject({
-        title: v.string(),
-        description: v.optional(v.string()),
-        tags: v.optional(v.array(v.string())),
-        draft: v.optional(v.boolean(), false),
-      }),
     },
   },
   plugins: [schedule()],
@@ -46,9 +34,52 @@ export default defineConfig({
 
 Each collection owns its root, globs, schema, public `baseUrl`, and optional plugin list. Top-level `plugins` are defaults for collections that omit `plugins`. A source file may belong to only one collection. The old `content` shape remains a one-minor compatibility path, compiles as a collection named `default`, and emits a deprecation warning. Schema-version 2 JSON must be rebuilt; the runtime intentionally does not guess a migration.
 
-The configuration accepts the Standard Schema interface. Valibot 1.x works directly as shown; Zod 4 and other conforming implementations can be used without an adapter. The built-in page schema includes Fumadocs' `title`, `description`, `icon`, and `full` fields. Plugin-owned fields such as `publishDate` stay out of the user schema and compiled page data. Each collection persists its normalized `baseUrl`, so its reference validation and runtime Fumadocs loader cannot drift.
+With no schema override, lume-cms imports Fumadocs' locked `pageSchema` and `metaSchema` directly. The configuration accepts the Standard Schema interface, so Valibot 1.x, Zod 4, and other conforming implementations can replace them without an adapter. Plugin-owned fields such as `publishDate` stay out of public page data. Each collection persists its normalized `baseUrl`, so its reference validation and runtime Fumadocs loader cannot drift.
 
-Markdown and MDX use Fumadocs' public YAML frontmatter parser and `mdxPreset()`, matching the official starter baseline: GFM, heading IDs, images, code tabs, npm install blocks, Shiki code highlighting, structured search data, and table-of-contents extraction. `meta.json` is the only JSON content input and is passed to Fumadocs as a native meta file. Its `title`, `description`, `icon`, `root`, `defaultOpen`, `pages`, and `pagesIndex` fields therefore control the page tree with Fumadocs' standard ordering, separators, folder expansion, exclusions, and external-link syntax. The Markdown pipeline is not configurable. The compiler stores a deterministic MDX function body in JSON. Raw HTML in Markdown is deliberately discarded; do not enable `allowDangerousHtml`/`rehype-raw` without adding an explicit sanitization policy. Run `lume-cms build` to generate stable JSON. Entries, meta files, and object keys are sorted, paths are relative, line endings are stable, and no timestamp or machine path is emitted.
+## Schema contract
+
+The default page and meta validators track `fumadocs-core/source/schema` from the installed Fumadocs version. The complete field matrix is:
+
+| File | Field | Fumadocs | lume-cms default | Boundary |
+| --- | --- | --- | --- | --- |
+| page | `title` | required string | same | public page data |
+| page | `description` | optional string | same | public page data |
+| page | `icon` | optional string | same | public page data |
+| page | `full` | optional boolean | same | public page data |
+| page | `_openapi` | optional JSON record | same | public page data |
+| page | `tags` | absent | optional string array | public extension retained for search/tag integrations |
+| page | `draft` | absent | optional boolean | private compiler control; stored as `entry.draft`, never page data |
+| page | `slug` | absent | optional string | private compiler control; stored as `entry.slug`, never page data |
+| meta | `title` | optional string | same | public meta data |
+| meta | `pages` | optional string array | same | public meta data |
+| meta | `pagesIndex` | optional string | same | public meta data |
+| meta | `description` | optional string | same | public meta data |
+| meta | `root` | optional boolean | same | public meta data |
+| meta | `defaultOpen` | optional boolean | same | public meta data |
+| meta | `collapsible` | optional boolean | same | public meta data |
+| meta | `icon` | optional string | same | public meta data |
+
+The official Zod objects strip unknown keys. `draft` and `slug` are validated from raw frontmatter and removed before the public page schema runs, so they keep their reserved semantics even when the public schema is replaced. Compilation fails if a schema default or transform tries to emit either reserved key, preventing a second public source of truth. Plugin-owned input such as `publishDate` is also validated from raw frontmatter and removed from public page data.
+
+For the Fumadocs-style `.extend()` workflow, install Zod and extend the exported defaults:
+
+```ts
+import { z } from 'zod';
+import { defaultMetaSchema, defaultPageSchema, defineConfig } from 'lume-cms/config';
+
+export default defineConfig({
+  content: {
+    schema: defaultPageSchema.extend({ category: z.enum(['docs', 'blog']) }),
+    metaSchema: defaultMetaSchema.extend({ badge: z.string().optional() }),
+  },
+});
+```
+
+Both slots accept any Standard Schema instead, including Valibot 1 and custom implementations. Supplying one is an explicit replacement: include every public field that should survive in compiled data. The private `draft` and `slug` fields remain reserved and cannot be redefined by the public schema.
+
+Schema additions in a future compatible Fumadocs release flow into the defaults because lume-cms imports the official objects rather than copying their shapes. Every Fumadocs upgrade must run the schema conformance tests and review deterministic output changes. Additive official fields remain schema v2; removals or incompatible type changes require a compiled-schema migration. A user-supplied replacement intentionally opts out of automatic additions until that schema is updated.
+
+Markdown and MDX use Fumadocs' public YAML frontmatter parser and `mdxPreset()`, matching the official starter baseline: GFM, heading IDs, images, code tabs, npm install blocks, Shiki code highlighting, structured search data, and table-of-contents extraction. `meta.json` is the only JSON content input and is passed to Fumadocs as a native meta file. Its `title`, `description`, `icon`, `root`, `defaultOpen`, `collapsible`, `pages`, and `pagesIndex` fields therefore control the page tree with Fumadocs' standard ordering, separators, folder expansion, exclusions, and external-link syntax. The Markdown pipeline is not configurable. The compiler stores a deterministic MDX function body in JSON. Raw HTML in Markdown is deliberately discarded; do not enable `allowDangerousHtml`/`rehype-raw` without adding an explicit sanitization policy. Run `lume-cms build` to generate stable JSON. Entries, meta files, and object keys are sorted, paths are relative, line endings are stable, and no timestamp or machine path is emitted.
 
 For local editing, run `lume-cms build --watch`. The first build is clean; later builds reuse an in-memory cache keyed by source path and content plus the resolved content configuration, schema, compiler version, plugin implementation, and plugin `compile.cacheKey`. Add, change, rename, and delete events update the same deterministic output without restarting the process. Configuration and local plugin source changes are reloaded and invalidate affected cache entries. A failed rebuild reports the error, keeps the last successful output, and continues watching so the next edit can recover. Custom plugins whose behavior depends on closed-over options should expose a stable `compile.cacheKey` containing those options.
 

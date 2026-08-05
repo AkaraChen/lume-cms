@@ -5,8 +5,10 @@ import { createElement, type ReactElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it } from 'vitest';
 import * as v from 'valibot';
+import { z } from 'zod';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import { CompileCache, compileContent, serializeCompiledContent } from '../src/compile.js';
+import { defaultMetaSchema, defaultPageSchema } from '../src/config.js';
 import { createFumadocsSource } from '../src/fumadocs.js';
 import { schedule } from '../src/schedule.js';
 import { definePlugin } from '../src/plugin.js';
@@ -209,16 +211,111 @@ pnpm add lume-cms
     expect(source.getPageTree()).toBeDefined();
   });
 
+  it('uses the official page schema while keeping draft and slug private', async () => {
+    const cwd = await fixture({
+      'content/page.mdx': `---
+title: Official page
+description: Description
+icon: Book
+full: true
+_openapi:
+  method: GET
+tags:
+  - docs
+draft: true
+slug: custom/path
+unknown: stripped
+---
+Body`,
+    });
+    const result = await compileContent({ cwd, write: false });
+
+    expect(result.collections.default!.entries[0]).toMatchObject({ slug: ['custom', 'path'], draft: true });
+    expect(result.collections.default!.entries[0]?.data).toEqual({
+      title: 'Official page',
+      description: 'Description',
+      icon: 'Book',
+      full: true,
+      _openapi: { method: 'GET' },
+      tags: ['docs'],
+    });
+  });
+
+  it('supports Zod-style extension and arbitrary Standard Schema replacement', async () => {
+    const cwd = await fixture({
+      'content/meta.json': '{"title":"Docs","badge":"new"}',
+      'content/page.md': '---\ntitle: Extended\ncategory: docs\n---\nBody',
+    });
+    const extended = await compileContent({
+      cwd,
+      write: false,
+      config: {
+        content: {
+          schema: defaultPageSchema.extend({ category: z.literal('docs') }),
+          metaSchema: defaultMetaSchema.extend({ badge: z.string() }),
+        },
+      },
+    });
+    expect(extended.collections.default!.entries[0]?.data).toEqual({ title: 'Extended', category: 'docs' });
+    expect(extended.collections.default!.metas?.[0]?.data).toEqual({ title: 'Docs', badge: 'new' });
+
+    const replacement = v.object({ title: v.string(), score: v.number() });
+    await writeFile(
+      path.join(cwd, 'content/page.md'),
+      '---\ntitle: Replaced\nscore: 42\ndraft: true\nslug: private/path\n---\nBody',
+    );
+    const replaced = await compileContent({
+      cwd,
+      write: false,
+      config: { content: { schema: replacement } },
+    });
+    expect(replaced.collections.default!.entries[0]?.data).toEqual({ title: 'Replaced', score: 42 });
+    expect(replaced.collections.default!.entries[0]).toMatchObject({ draft: true, slug: ['private', 'path'] });
+  });
+
+  it('rejects Zod defaults and transforms that reintroduce private page fields', async () => {
+    const cwd = await fixture({
+      'content/page.md': '---\ntitle: Page\ndraft: false\nslug: original/path\n---\nBody',
+    });
+    const schema = defaultPageSchema.extend({
+      draft: z.boolean().default(true),
+      slug: z.string().default('seed').transform(() => 'leak'),
+    });
+
+    await expect(compileContent({ cwd, write: false, config: { content: { schema } } }))
+      .rejects.toThrow(/schema output: reserved private fields draft\/slug are forbidden/);
+  });
+
+  it('rejects arbitrary Standard Schema output that reintroduces a private page field', async () => {
+    const cwd = await fixture({
+      'content/page.md': '---\ntitle: Page\ndraft: true\nslug: original/path\n---\nBody',
+    });
+    const schema = {
+      '~standard': {
+        version: 1 as const,
+        vendor: 'private-output-test',
+        validate() {
+          return { value: { title: 'Transformed', slug: 'leak' } };
+        },
+      },
+    } satisfies StandardSchemaV1<unknown, Record<string, unknown>>;
+
+    await expect(compileContent({ cwd, write: false, config: { content: { schema } } }))
+      .rejects.toThrow(/schema output: reserved private fields draft\/slug are forbidden/);
+  });
+
   it('collects deterministic meta.json files independently from the page include glob', async () => {
     const cwd = await fixture({
       'docs/meta.json': JSON.stringify({
         pagesIndex: 'intro',
         pages: ['intro', '---More---', '...'],
         defaultOpen: true,
+        collapsible: false,
         root: true,
         icon: 'Book',
         description: 'Guide pages',
         title: 'Guide',
+        unknown: 'stripped',
       }),
       'docs/intro.mdx': '---\ntitle: Intro\n---\nIntro',
       'docs/nested/meta.json': '{"title":"Nested"}',
@@ -235,6 +332,7 @@ pnpm add lume-cms
           pagesIndex: 'intro',
           pages: ['intro', '---More---', '...'],
           defaultOpen: true,
+          collapsible: false,
           root: true,
           icon: 'Book',
           description: 'Guide pages',
@@ -250,6 +348,30 @@ pnpm add lume-cms
     const cwd = await fixture({ 'content/meta.json': '{ nope' });
     await expect(compileContent({ cwd, write: false }))
       .rejects.toThrow(/content\/meta\.json: invalid meta\.json/);
+  });
+
+  it('rejects values outside the official schemas and reserved private field types', async () => {
+    const invalidPage = await fixture({
+      'content/page.md': '---\ntitle: Page\nfull: wide\n---\nBody',
+    });
+    await expect(compileContent({ cwd: invalidPage, write: false }))
+      .rejects.toThrow(/content\/page\.md: invalid frontmatter/);
+
+    const invalidMeta = await fixture({
+      'content/meta.json': '{"pages":[42]}',
+      'content/page.md': '---\ntitle: Page\n---\nBody',
+    });
+    await expect(compileContent({ cwd: invalidMeta, write: false }))
+      .rejects.toThrow(/content\/meta\.json: invalid meta\.json/);
+
+    const invalidPrivate = await fixture({
+      'content/page.md': '---\ntitle: Page\ndraft: yes\n---\nBody',
+    });
+    await expect(compileContent({
+      cwd: invalidPrivate,
+      write: false,
+      config: { content: { schema: v.object({ title: v.string() }) } },
+    })).rejects.toThrow(/invalid private frontmatter: draft must be a boolean/);
   });
 
   it('rejects invalid or offset-less dates', async () => {
@@ -309,7 +431,7 @@ pnpm add lume-cms
     });
 
     expect(calls).toEqual(['setup:one', 'setup:two', 'entry:one', 'entry:two', 'finalize:one', 'finalize:two']);
-    expect(result.collections.default!.entries[0]?.data).toEqual({ title: 'Page', draft: false });
+    expect(result.collections.default!.entries[0]?.data).toEqual({ title: 'Page' });
     expect(result.collections.default!.entries[0]?.ext).toEqual({
       one: { value: 'HIDDEN', mode: 'default-mode' },
       two: { value: 'HIDDEN', mode: 'default-mode' },

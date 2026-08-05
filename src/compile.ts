@@ -7,7 +7,8 @@ import { frontmatter } from 'fumadocs-core/content/md/frontmatter';
 import { mdxPreset } from 'fumadocs-core/content/mdx/preset-runtime';
 import { getSlugs } from 'fumadocs-core/source';
 import {
-  defaultFrontmatterSchema,
+  defaultMetaSchema,
+  defaultPageSchema,
   loadLumeConfig,
   type ContentSchema,
   type LumeConfig,
@@ -261,7 +262,11 @@ function relativeContentPath(contentRoot: string, absolutePath: string): string 
   return path.relative(contentRoot, absolutePath).replace(/\\/g, '/');
 }
 
-function parseMeta(raw: string, sourcePath: string): CompiledMeta['data'] {
+async function parseMeta(
+  raw: string,
+  sourcePath: string,
+  schema: ContentSchema,
+): Promise<CompiledMeta['data']> {
   let value: unknown;
   try {
     value = JSON.parse(raw);
@@ -272,7 +277,24 @@ function parseMeta(raw: string, sourcePath: string): CompiledMeta['data'] {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error(`${sourcePath}: invalid meta.json: expected a JSON object`);
   }
-  return value as CompiledMeta['data'];
+  return await validate(schema, value, sourcePath, 'meta.json') as CompiledMeta['data'];
+}
+
+function privateFrontmatter(value: unknown, sourcePath: string): { draft: boolean; slug?: string } {
+  const data = value as Record<string, unknown>;
+  if (data.draft !== undefined && typeof data.draft !== 'boolean') {
+    throw new Error(`${sourcePath}: invalid private frontmatter: draft must be a boolean`);
+  }
+  if (data.slug !== undefined && typeof data.slug !== 'string') {
+    throw new Error(`${sourcePath}: invalid private frontmatter: slug must be a string`);
+  }
+  return { draft: data.draft === true, slug: data.slug as string | undefined };
+}
+
+function assertNoPrivatePageData(data: Record<string, unknown>, sourcePath: string) {
+  if ('draft' in data || 'slug' in data) {
+    throw new Error(`${sourcePath}: invalid frontmatter schema output: reserved private fields draft/slug are forbidden`);
+  }
 }
 
 async function compileEntry(
@@ -283,8 +305,13 @@ async function compileEntry(
   plugins: readonly AnyLumePlugin[],
 ): Promise<CompiledUnit> {
   const parsed = frontmatter(raw);
-  const data = { ...await validate(schema, parsed.data, sourcePath, 'frontmatter') };
-  const slug = typeof data.slug === 'string' ? data.slug.split('/').filter(Boolean) : getSlugs(contentPath);
+  const privateData = privateFrontmatter(parsed.data, sourcePath);
+  const { draft: _draft, slug: _slug, ...publicFrontmatter } = parsed.data as Record<string, unknown>;
+  const data = { ...await validate(schema, publicFrontmatter, sourcePath, 'frontmatter') };
+  assertNoPrivatePageData(data, sourcePath);
+  const slug = privateData.slug !== undefined
+    ? privateData.slug.split('/').filter(Boolean)
+    : getSlugs(contentPath);
   const ext: Record<string, unknown> = {};
   for (const plugin of plugins) {
     let pluginFrontmatter: Record<string, unknown> = {};
@@ -312,7 +339,7 @@ async function compileEntry(
     entry: {
       slug,
       path: contentPath,
-      draft: data.draft === true,
+      draft: privateData.draft,
       data,
       ext,
       body,
@@ -345,21 +372,21 @@ export async function compileContent(options: CompileOptions = {}): Promise<Comp
     const definition = configured[name]!;
     const baseUrl = normalizeBaseUrl(definition.baseUrl);
     const contentRoot = path.resolve(cwd, definition.root ?? 'content');
-    const schema = definition.schema ?? defaultFrontmatterSchema;
+    const schema = definition.schema ?? defaultPageSchema;
+    const metaSchema = definition.metaSchema ?? defaultMetaSchema;
     const plugins = definition.plugins ?? config.plugins ?? [];
     assertPluginIds(plugins);
     for (const plugin of plugins) await plugin.compile?.setup?.(pluginContext);
     const entries: CompiledEntry[] = [];
     const referenceEntries: ReferenceEntry[] = [];
     const metas: CompiledMeta[] = [];
-
     for (const sourcePath of files.get(name)!.metas) {
       const absolutePath = path.resolve(cwd, sourcePath);
       const raw = await readFile(absolutePath, 'utf8');
       const fileDigest = digest(fingerprint, name, sourcePath, raw);
       const meta = cache?.getMeta(sourcePath, fileDigest) ?? {
         path: relativeContentPath(contentRoot, absolutePath),
-        data: parseMeta(raw, sourcePath),
+        data: await parseMeta(raw, sourcePath, metaSchema),
       };
       cache?.setMeta(sourcePath, fileDigest, meta);
       metaPaths.add(sourcePath);

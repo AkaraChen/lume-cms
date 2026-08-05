@@ -57,6 +57,21 @@ if (readFileSync('dist/index.mjs', 'utf8').includes('publishAtMs')) {
 }
 const { schedule } = await import('../dist/schedule.mjs');
 if (schedule().id !== 'schedule') throw new Error('The published schedule entry is not importable');
+const {
+  defaultMetaSchema,
+  defaultPageSchema,
+  officialMetaSchema,
+  officialPageSchema,
+} = await import('../dist/config.mjs');
+if (!defaultPageSchema.safeParse({ title: 'Page', tags: ['docs'] }).success) {
+  throw new Error('The published default page schema is not importable');
+}
+if (!defaultMetaSchema.safeParse({ title: 'Docs', pages: ['index'] }).success) {
+  throw new Error('The published default meta schema is not importable');
+}
+if (officialPageSchema === undefined || officialMetaSchema === undefined) {
+  throw new Error('The published official Fumadocs schema baselines are missing');
+}
 
 const fixture = mkdtempSync(path.join(tmpdir(), 'lume-cms-package-'));
 let watchChild;

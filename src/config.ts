@@ -1,20 +1,22 @@
 import { loadConfig } from 'c12';
-import * as v from 'valibot';
+import { metaSchema as fumadocsMetaSchema, pageSchema as fumadocsPageSchema } from 'fumadocs-core/source/schema';
+import { z } from 'zod';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import type { AnyLumePlugin } from './plugin.js';
 
 export { definePlugin } from './plugin.js';
 export type { AnyLumePlugin, LumePlugin } from './plugin.js';
 
-export const defaultFrontmatterSchema = v.looseObject({
-  title: v.string(),
-  description: v.optional(v.string()),
-  icon: v.optional(v.string()),
-  full: v.optional(v.boolean()),
-  slug: v.optional(v.string()),
-  draft: v.optional(v.boolean(), false),
-  tags: v.optional(v.array(v.string())),
+/** The exact Fumadocs baseline, exported so Zod users can extend it directly. */
+export const officialPageSchema = fumadocsPageSchema;
+export const officialMetaSchema = fumadocsMetaSchema;
+export const defaultPageSchema = officialPageSchema.extend({
+  /** lume-cms public page-data extension, used by search integrations. */
+  tags: z.array(z.string()).optional(),
 });
+export const defaultMetaSchema = officialMetaSchema;
+/** @deprecated Use defaultPageSchema. */
+export const defaultFrontmatterSchema = defaultPageSchema;
 
 export type ContentSchema = StandardSchemaV1<unknown, Record<string, unknown>>;
 
@@ -26,6 +28,8 @@ export interface CollectionConfig {
   root?: string;
   /** Any Standard Schema implementation, including Valibot 1 and Zod 4. */
   schema?: ContentSchema;
+  /** Defaults to Fumadocs metaSchema; replace or extend it with any Standard Schema. */
+  metaSchema?: ContentSchema;
   /** Overrides the top-level plugin defaults for this collection. */
   plugins?: readonly AnyLumePlugin[];
 }
