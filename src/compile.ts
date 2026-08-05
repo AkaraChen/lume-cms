@@ -22,7 +22,14 @@ import type {
   CompiledEntry,
   CompiledMeta,
 } from './types.js';
-import { assertPluginIds, type AnyLumePlugin } from './plugin.js';
+import {
+  assertPluginIds,
+  composeOnion,
+  type AnyLumePlugin,
+  type CompileCollectionContext,
+  type Next,
+  type PluginContext,
+} from './plugin.js';
 import { normalizeBaseUrl } from './url.js';
 import { normalizeI18n, parseI18nPath, type CompiledI18nConfig } from './i18n.js';
 import {
@@ -362,6 +369,31 @@ function assertNoPrivatePageData(data: Record<string, unknown>, sourcePath: stri
   }
 }
 
+type CompileMiddleware<Context> = (context: Context, next: Next<Promise<void>>) => Promise<void>;
+
+function compileMiddleware(plugins: readonly AnyLumePlugin[]): {
+  setup: CompileMiddleware<PluginContext>[];
+  collection: CompileMiddleware<CompileCollectionContext>[];
+} {
+  const setup: CompileMiddleware<PluginContext>[] = [];
+  const collection: CompileMiddleware<CompileCollectionContext>[] = [];
+  for (const plugin of plugins) {
+    const compile = plugin.compile;
+    if (!compile) continue;
+    if (compile.setup) {
+      setup.push(async (context, next) => {
+        await compile.setup!(context, next);
+      });
+    }
+    if (compile.collection) {
+      collection.push(async (context, next) => {
+        await compile.collection!(context, next);
+      });
+    }
+  }
+  return { setup, collection };
+}
+
 async function compileEntry(
   raw: string,
   sourcePath: string,
@@ -445,9 +477,8 @@ export async function compileContent(options: CompileOptions = {}): Promise<Comp
     const metaSchema = definition.metaSchema ?? defaultMetaSchema;
     const plugins = definition.plugins ?? config.plugins ?? [];
     assertPluginIds(plugins);
-    for (const plugin of plugins) {
-      await plugin.compile?.setup?.(pluginContext, async () => {});
-    }
+    const middleware = compileMiddleware(plugins);
+    await composeOnion(middleware.setup, async () => {})(pluginContext);
     const entries: CompiledEntry[] = [];
     const referenceEntries: ReferenceEntry[] = [];
     const metas: CompiledMeta[] = [];
@@ -487,7 +518,7 @@ export async function compileContent(options: CompileOptions = {}): Promise<Comp
       || a.path.localeCompare(b.path)
     ));
     assertUniqueSlugs(entries, i18n);
-    for (const plugin of plugins) await plugin.compile?.finalize?.(entries, pluginContext);
+    await composeOnion(middleware.collection, async () => {})({ ...pluginContext, entries });
     const diagnostics = await validateReferences(cwd, referenceEntries, baseUrl, i18n);
     allDiagnostics.push(...diagnostics);
     collections[name] = {
