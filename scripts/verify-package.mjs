@@ -6,13 +6,14 @@ import process from 'node:process';
 
 const packed = JSON.parse(execFileSync('npm', ['pack', '--dry-run', '--json'], { encoding: 'utf8' }));
 const files = new Set(packed[0]?.files?.map((file) => file.path));
+if (!files.has('bin/lume-cms.mjs')) throw new Error('Published package is missing its stable bin entry');
 if (!files.has('dist/cli.mjs')) throw new Error('Published package is missing dist/cli.mjs');
 
 const fixture = mkdtempSync(path.join(tmpdir(), 'lume-cms-package-'));
 try {
   let emptyScanFailed = false;
   try {
-    execFileSync(process.execPath, ['dist/cli.mjs', 'scan-client', fixture, 'UNPUBLISHED_SENTINEL'], {
+    execFileSync(process.execPath, ['bin/lume-cms.mjs', 'scan-client', fixture, 'UNPUBLISHED_SENTINEL'], {
       stdio: 'pipe',
     });
   } catch (error) {
@@ -22,7 +23,7 @@ try {
 
   mkdirSync(path.join(fixture, '.next/static/chunks'), { recursive: true });
   writeFileSync(path.join(fixture, '.next/static/chunks/app.js'), 'public-content');
-  execFileSync(process.execPath, ['dist/cli.mjs', 'scan-client', fixture, 'UNPUBLISHED_SENTINEL'], {
+  execFileSync(process.execPath, ['bin/lume-cms.mjs', 'scan-client', fixture, 'UNPUBLISHED_SENTINEL'], {
     stdio: 'pipe',
   });
 } finally {

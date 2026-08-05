@@ -5,10 +5,11 @@
   "type": "module",
   "license": "MIT",
   "files": [
+    "bin",
     "dist"
   ],
   "bin": {
-    "lume-cms": "./dist/cli.mjs"
+    "lume-cms": "./bin/lume-cms.mjs"
   },
   "exports": {
     ".": {

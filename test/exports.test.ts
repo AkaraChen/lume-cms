@@ -10,7 +10,7 @@ describe('public exports', () => {
       expect(target.types).toMatch(/\.d\.mts$/);
       expect(target.import).toMatch(/\.mjs$/);
     }
-    expect(manifest.bin).toEqual({ 'lume-cms': './dist/cli.mjs' });
+    expect(manifest.bin).toEqual({ 'lume-cms': './bin/lume-cms.mjs' });
     const main = await readFile(new URL('../src/index.ts', import.meta.url), 'utf8');
     expect(main).not.toContain('unsafe_');
   });
