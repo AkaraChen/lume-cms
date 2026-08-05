@@ -2,7 +2,8 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { describe, expect, it } from 'vitest';
 import type { Folder, Item, Node, Root } from 'fumadocs-core/page-tree';
 import { collection, createFumadocsSource, createFumadocsSources } from '../src/fumadocs.js';
-import type { CompiledContent } from '../src/types.js';
+import { definePlugin, type PreviewContext } from '../src/plugin.js';
+import type { CompiledContent, CompiledEntry } from '../src/types.js';
 import { schedule } from '../src/schedule.js';
 
 function entry(id: string, publishAtMs: number | null, draft = false) {
@@ -116,6 +117,29 @@ describe('createFumadocsSource', () => {
     expect((await result.getAllPages()).map((page) => page.url).sort()).toEqual(['/blog/shared', '/docs/docs-later', '/docs/shared']);
   });
 
+  it('keeps preview loaders isolated by collection and from every public generation', async () => {
+    const result = createFumadocsSources({
+      schemaVersion: 3,
+      collections: {
+        docs: { plugins: [], entries: [entry('docs-draft', null, true)] },
+        blog: { plugins: [], entries: [entry('blog-draft', null, true)] },
+      },
+    }, {
+      collections: {
+        docs: collection({ baseUrl: '/docs' }),
+        blog: collection({ baseUrl: '/blog' }),
+      },
+    });
+
+    expect((await result.getAllPages())).toEqual([]);
+    expect((await result.sources.docs.getPreviewSource({ draft: true })).getPages().map((page) => page.url))
+      .toEqual(['/docs/docs-draft']);
+    expect((await result.sources.blog.getPreviewSource({ draft: true })).getPages().map((page) => page.url))
+      .toEqual(['/blog/blog-draft']);
+    expect((await result.sources.docs.getSource()).getPages()).toEqual([]);
+    expect((await result.sources.blog.getSource()).getPages()).toEqual([]);
+  });
+
   it('fails fast for mismatched collection sets, duplicate base URLs, and plural use of the singular API', () => {
     const content: CompiledContent = {
       schemaVersion: 3,
@@ -182,6 +206,98 @@ describe('createFumadocsSource', () => {
     const after = await source.getSource();
     expect(Object.values(starterConsumerSets(after))).toEqual(Array(7).fill(['published', 'scheduled']));
     expect(after.getPages().map((page) => page.slugs.join('/')).sort()).toEqual(['published', 'scheduled']);
+  });
+
+  it('previews only the explicitly requested draft and future dimensions', async () => {
+    const factory = createFumadocsSource({
+      schemaVersion: 3,
+      collections: { default: { i18n: undefined, plugins: ['schedule'], entries: [
+          entry('public', null),
+          entry('draft', null, true),
+          entry('future', 20),
+          entry('draft-future', 20, true),
+        ] } },
+    }, { now: () => new Date(10), plugins: [schedule()] });
+    const slugs = async (options?: Parameters<typeof factory.getPreviewSource>[0]) =>
+      (await factory.getPreviewSource(options)).getPages().map((page) => page.slugs[0]).sort();
+
+    expect((await factory.getSource()).getPages().map((page) => page.slugs[0])).toEqual(['public']);
+    expect(await slugs()).toEqual(['public']);
+    expect(await slugs({ draft: true })).toEqual(['draft', 'public']);
+    expect(await slugs({ future: true })).toEqual(['future', 'public']);
+    expect(await slugs({ draft: true, future: true })).toEqual([
+      'draft',
+      'draft-future',
+      'future',
+      'public',
+    ]);
+    expect(await factory.getPreviewSource()).not.toBe(await factory.getPreviewSource());
+  });
+
+  it('keeps preview loaders isolated from the public deadline and coalesced refresh state', async () => {
+    let now = 10;
+    let deadlineCalls = 0;
+    const previewContexts: Array<PreviewContext | undefined> = [];
+    const observed = definePlugin({
+      id: 'observed',
+      runtime: {
+        visible(_entry, context) {
+          previewContexts.push(context.preview);
+          return true;
+        },
+        deadline(_entries, { nowMs }) {
+          deadlineCalls += 1;
+          return nowMs < 20 ? 20 : Infinity;
+        },
+      },
+    });
+    const factory = createFumadocsSource({
+      schemaVersion: 3,
+      collections: { default: {
+        i18n: undefined,
+        plugins: ['schedule', 'observed'],
+        entries: [entry('future', 20)],
+      } },
+    }, { now: () => new Date(now), plugins: [schedule(), observed] });
+
+    expect((await factory.getSource()).getPage(['future'])).toBeUndefined();
+    expect(deadlineCalls).toBe(1);
+
+    const preview = await factory.getPreviewSource({ future: true });
+    expect(preview.getPage(['future'])).toBeDefined();
+    expect(previewContexts.at(-1)).toEqual({ draft: false, future: true, expired: false });
+    expect(deadlineCalls).toBe(1);
+
+    expect((await factory.getSource()).getPage(['future'])).toBeUndefined();
+    expect(deadlineCalls).toBe(1);
+    now = 20;
+    const [concurrentPreview, ...refreshed] = await Promise.all([
+      factory.getPreviewSource({ future: true }),
+      ...Array.from({ length: 20 }, () => factory.getSource()),
+    ]);
+    expect(concurrentPreview.getPage(['future'])).toBeDefined();
+    expect(refreshed.every((source) => source.getPage(['future']) !== undefined)).toBe(true);
+    expect(deadlineCalls).toBe(2);
+    expect(previewContexts.some((context) => context === undefined)).toBe(true);
+  });
+
+  it('does not bypass third-party visibility plugins that ignore preview context', async () => {
+    const trustedOnly = definePlugin({
+      id: 'trusted-only',
+      runtime: { visible: (candidate: CompiledEntry) => candidate.slug[0] !== 'hidden' },
+    });
+    const factory = createFumadocsSource({
+      schemaVersion: 3,
+      collections: { default: {
+        i18n: undefined,
+        plugins: ['schedule', 'trusted-only'],
+        entries: [entry('hidden', 20, true), entry('visible', 20, true)],
+      } },
+    }, { now: () => new Date(10), plugins: [schedule(), trustedOnly] });
+
+    const preview = await factory.getPreviewSource({ draft: true, future: true, expired: true });
+    expect(preview.getPage(['hidden'])).toBeUndefined();
+    expect(preview.getPage(['visible'])).toBeDefined();
   });
 
   it('coalesces concurrent refreshes at the same publication boundary', async () => {

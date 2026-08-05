@@ -44,7 +44,9 @@ export function schedule(options: ScheduleOptions = {}): SchedulePlugin {
       },
     },
     runtime: {
-      visible: (entry, { nowMs }) => extension(entry).publishAtMs === null || extension(entry).publishAtMs! <= nowMs,
+      visible: (entry, { nowMs, preview }) => preview?.future === true
+        || extension(entry).publishAtMs === null
+        || extension(entry).publishAtMs! <= nowMs,
       deadline: (entries, { nowMs }) => entries
         .filter((entry) => !entry.draft)
         .map((entry) => extension(entry).publishAtMs)
