@@ -3,6 +3,19 @@ import fg from 'fast-glob';
 import { describe, expect, it } from 'vitest';
 
 describe('example request-time publishing contract', () => {
+  it('uses processed Markdown for full and per-page text exports', async () => {
+    const source = await readFile('examples/lib/source.ts', 'utf8');
+    expect(source).toContain('page.data.processedMarkdown');
+    expect(source).not.toContain('${page.data.content}');
+
+    for (const file of [
+      'examples/app/llms-full.txt/route.ts',
+      'examples/app/llms.mdx/docs/[[...slug]]/route.ts',
+    ]) {
+      expect(await readFile(file, 'utf8'), file).toContain('getLLMText');
+    }
+  });
+
   it('gives every getSource route exactly the force-dynamic publishing model', async () => {
     const files = await fg('examples/app/**/*.{ts,tsx}');
     const routes = await Promise.all(files.map(async (file) => ({

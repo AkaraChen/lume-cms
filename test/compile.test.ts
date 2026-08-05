@@ -110,6 +110,51 @@ describe('compileContent', () => {
     expect(html).toContain('<aside>42:MDX body</aside>');
   });
 
+  it('emits deterministic pure Markdown while preserving the original MDX source', async () => {
+    const cwd = await fixture({
+      'content/export.mdx': `---
+title: Export
+---
+import Widget from './widget';
+
+# Export heading
+
+<Callout type="info">
+Visible **child** text.
+
+<Card title="Card title">Nested card {2 + 2}</Card>
+</Callout>
+
+<Widget answer={42} />
+
+<Card title="Quick start" href="/quick start" />
+
+| Feature | State |
+| --- | --- |
+| GFM | kept |
+`,
+    });
+    const first = await compileContent({ cwd, write: false });
+    const second = await compileContent({ cwd, write: false });
+    const body = first.collections.default!.entries[0]!.body;
+
+    expect(body.markdown).toContain("import Widget from './widget'");
+    expect(body.markdown).toContain('<Callout type="info">');
+    expect(body.markdown).toContain('<Widget answer={42} />');
+    expect(body.processedMarkdown).toContain('# Export heading');
+    expect(body.processedMarkdown).toContain('Visible **child** text.');
+    expect(body.processedMarkdown).toContain('Nested card');
+    expect(body.processedMarkdown).toContain('[Quick start](/quick%20start)');
+    expect(body.processedMarkdown).toContain('| Feature | State |');
+    expect(body.processedMarkdown).not.toMatch(/\bimport\s|\bexport\s/);
+    expect(body.processedMarkdown).not.toMatch(/<\/?[A-Za-z]|\{[^}]*\}/);
+    expect(serializeCompiledContent(first)).toBe(serializeCompiledContent(second));
+
+    const page = (await createFumadocsSource(first).getSource()).getPages()[0]!;
+    expect(page.data.content).toBe(body.markdown);
+    expect(page.data.processedMarkdown).toBe(body.processedMarkdown);
+  });
+
   it('preserves the starter GFM and Shiki MDX pipeline', async () => {
     const cwd = await fixture({
       'content/test.mdx': `---

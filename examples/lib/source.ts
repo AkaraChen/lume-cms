@@ -57,5 +57,5 @@ export function getPageMarkdownUrl(page: Page) {
 export async function getLLMText(page: Page) {
   return `# ${page.data.title} (${page.url})
 
-${page.data.content}`;
+${page.data.processedMarkdown}`;
 }

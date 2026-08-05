@@ -9,8 +9,10 @@ export interface TocItem {
 }
 
 export interface CompiledBody {
-  /** Source Markdown/MDX, kept for text exports such as `llms.txt`. */
+  /** Original Markdown/MDX source body, without frontmatter. */
   markdown: string;
+  /** Pure Markdown produced after remark transforms; optional for older schema v2 artifacts. */
+  processedMarkdown?: string;
   /** Compiled MDX function body, evaluated on the server to render React. */
   code: string;
   toc: TocItem[];

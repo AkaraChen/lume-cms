@@ -124,6 +124,21 @@ The runnable `examples/i18n/` fixture shows a two-language dot layout, localized
 
 Markdown and MDX use Fumadocs' public YAML frontmatter parser and `mdxPreset()`, matching the official starter baseline: GFM, heading IDs, images, code tabs, npm install blocks, Shiki code highlighting, structured search data, and table-of-contents extraction. `meta.json` is the only JSON content input and is passed to Fumadocs as a native meta file. Its `title`, `description`, `icon`, `root`, `defaultOpen`, `collapsible`, `pages`, and `pagesIndex` fields therefore control the page tree with Fumadocs' standard ordering, separators, folder expansion, exclusions, and external-link syntax. The Markdown pipeline is not configurable. The compiler stores a deterministic MDX function body in JSON. Raw HTML in Markdown is deliberately discarded; do not enable `allowDangerousHtml`/`rehype-raw` without adding an explicit sanitization policy. Run `lume-cms build` to generate stable JSON. Entries, meta files, and object keys are sorted, paths are relative, line endings are stable, and no timestamp or machine path is emitted.
 
+### Processed Markdown exports
+
+Every new build stores both text representations in `entry.body`:
+
+| Field | Meaning | Consumer |
+| --- | --- | --- |
+| `markdown` | original Markdown/MDX body after frontmatter removal | source-aware tooling and backwards-compatible `page.data.content` |
+| `processedMarkdown` | pure Markdown after the same remark transforms used for rendering | `llms-full.txt`, per-page Markdown, content negotiation, and EPUB/LLM integrations |
+
+The pure-Markdown degradation is intentionally non-executing and deterministic: ESM imports/exports and JavaScript expressions are removed; MDX/JSX wrapper tags and attributes are removed while their Markdown children are retained. A self-closing component with a literal `title` or `label` becomes plain text, or a Markdown link when it also has a literal `href`; other self-closing components disappear. Standard Markdown and GFM constructs such as headings, links, tables, lists, and fenced code remain. Component-specific rendering is not executed or guessed beyond that portable title/link fallback—authors who need richer text from a visual component should put it in the component's children.
+
+The loader exposes the two values as `page.data.content` (original) and `page.data.processedMarkdown` (export form). Older schema v2 artifacts without the additive field fall back to their original body until rebuilt. The example's shared `getLLMText()` uses `processedMarkdown`, so the full and per-page export routes cannot leak unexpanded JSX or imports.
+
+This intentionally duplicates body text in the JSON artifact. In the three-page example fixture it adds 542 bytes uncompressed and 48 bytes after Brotli (12,639 → 13,181 raw; 2,214 → 2,262 Brotli). Growth is linear and can approach one extra normalized body per page before compression; large-site sharding/lazy-loading thresholds remain KIT-626's benchmark decision rather than being mixed into this compatibility layer.
+
 For local editing, run `lume-cms build --watch`. The first build is clean; later builds reuse an in-memory cache keyed by source path and content plus the resolved content configuration, schema, compiler version, plugin implementation, and plugin `compile.cacheKey`. Add, change, rename, and delete events update the same deterministic output without restarting the process. Configuration and local plugin source changes are reloaded and invalidate affected cache entries. A failed rebuild reports the error, keeps the last successful output, and continues watching so the next edit can recover. Custom plugins whose behavior depends on closed-over options should expose a stable `compile.cacheKey` containing those options.
 
 Keep process orchestration in the consuming app. For example, install `concurrently` as that app's dev dependency and give content compilation and Next.js separate scripts:

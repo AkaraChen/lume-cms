@@ -132,6 +132,20 @@ describe('createFumadocsSource', () => {
     expect(() => createFumadocsSource(content)).toThrow(/exactly one compiled collection/);
   });
 
+  it('falls back to source Markdown for artifacts without processed Markdown', async () => {
+    const source = await createFumadocsSource({
+      schemaVersion: 3,
+      collections: {
+        default: { i18n: undefined, plugins: [], entries: [entry('legacy', null)] },
+      },
+    }).getSource();
+
+    expect(source.getPage(['legacy'])?.data).toMatchObject({
+      content: 'legacy',
+      processedMarkdown: 'legacy',
+    });
+  });
+
   it('invalidates exactly at the publication deadline', async () => {
     let now = 999;
     const content: CompiledContent = {
