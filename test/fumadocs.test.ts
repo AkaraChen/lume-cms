@@ -19,7 +19,7 @@ function entry(id: string, publishAtMs: number | null, draft = false) {
     draft,
     data: { title: id },
     ext: { schedule: { publishDate: publishAtMs === null ? null : new Date(publishAtMs).toISOString(), publishAtMs } },
-    body: { markdown: id, code: '', toc: [], structuredData: { headings: [], contents: [] } },
+    body: { markdown: id, processedMarkdown: id, code: '', toc: [], structuredData: { headings: [], contents: [] } },
   };
 }
 
@@ -50,7 +50,7 @@ describe('createFumadocsSource', () => {
     const clock = new AsyncLocalStorage<number>();
     const source = createFumadocsSource({
       schemaVersion: 3,
-      collections: { default: { plugins: ['schedule'], entries: [entry('scheduled', 20)] } },
+      collections: { default: { baseUrl: '/', plugins: ['schedule'], entries: [entry('scheduled', 20)], metas: [] } },
     }, { now: () => new Date(clock.getStore()!), plugins: [schedule()] });
 
     const before = await clock.run(19, () => source.getSource());
@@ -66,7 +66,7 @@ describe('createFumadocsSource', () => {
     const clock = new AsyncLocalStorage<number>();
     const source = createFumadocsSource({
       schemaVersion: 3,
-      collections: { default: { plugins: ['schedule'], entries: [entry('scheduled', 20)] } },
+      collections: { default: { baseUrl: '/', plugins: ['schedule'], entries: [entry('scheduled', 20)], metas: [] } },
     }, { now: () => new Date(clock.getStore()!), plugins: [schedule()] });
     let signalBeforeRead!: () => void;
     let signalAfterRead!: () => void;
@@ -97,14 +97,14 @@ describe('createFumadocsSource', () => {
     const result = createFumadocsSources({
       schemaVersion: 3,
       collections: {
-        docs: { plugins: ['schedule'], entries: [entry('shared', 10), entry('docs-later', 20)] },
-        blog: { plugins: ['schedule'], entries: [entry('shared', 10), entry('blog-later', 30)] },
+        docs: { baseUrl: '/docs', plugins: ['schedule'], entries: [entry('shared', 10), entry('docs-later', 20)], metas: [] },
+        blog: { baseUrl: '/blog', plugins: ['schedule'], entries: [entry('shared', 10), entry('blog-later', 30)], metas: [] },
       },
     }, {
       now: () => new Date(now),
       collections: {
-        docs: collection({ baseUrl: '/docs', plugins: [schedule()] }),
-        blog: collection({ baseUrl: '/blog', plugins: [schedule()] }),
+        docs: collection({ plugins: [schedule()] }),
+        blog: collection({ plugins: [schedule()] }),
       },
     });
 
@@ -127,13 +127,13 @@ describe('createFumadocsSource', () => {
     const result = createFumadocsSources({
       schemaVersion: 3,
       collections: {
-        docs: { plugins: [], entries: [entry('docs-draft', null, true)] },
-        blog: { plugins: [], entries: [entry('blog-draft', null, true)] },
+        docs: { baseUrl: '/docs', plugins: [], entries: [entry('docs-draft', null, true)], metas: [] },
+        blog: { baseUrl: '/blog', plugins: [], entries: [entry('blog-draft', null, true)], metas: [] },
       },
     }, {
       collections: {
-        docs: collection({ baseUrl: '/docs' }),
-        blog: collection({ baseUrl: '/blog' }),
+        docs: collection({}),
+        blog: collection({}),
       },
     });
 
@@ -150,23 +150,23 @@ describe('createFumadocsSource', () => {
     const content: CompiledContent = {
       schemaVersion: 3,
       collections: {
-        docs: { plugins: [], entries: [] },
-        blog: { plugins: [], entries: [] },
+        docs: { baseUrl: '/same', plugins: [], entries: [], metas: [] },
+        blog: { baseUrl: '/same', plugins: [], entries: [], metas: [] },
       },
     };
     expect(() => createFumadocsSources(content, { collections: { docs: collection({}) } }))
       .toThrow(/must match exactly/);
     expect(() => createFumadocsSources(content, {
-      collections: { docs: collection({ baseUrl: '/same' }), blog: collection({ baseUrl: '/same' }) },
+      collections: { docs: collection({}), blog: collection({}) },
     })).toThrow(/same baseUrl/);
     expect(() => createFumadocsSource(content)).toThrow(/exactly one compiled collection/);
   });
 
-  it('falls back to source Markdown for artifacts without processed Markdown', async () => {
+  it('exposes the compiled processed Markdown', async () => {
     const source = await createFumadocsSource({
       schemaVersion: 3,
       collections: {
-        default: { i18n: undefined, plugins: [], entries: [entry('legacy', null)] },
+        default: { baseUrl: '/', i18n: undefined, plugins: [], entries: [entry('legacy', null)], metas: [] },
       },
     }).getSource();
 
@@ -180,14 +180,14 @@ describe('createFumadocsSource', () => {
     let now = 999;
     const content: CompiledContent = {
       schemaVersion: 3,
-      collections: { default: { plugins: ['schedule'], entries: [{
+      collections: { default: { baseUrl: '/', plugins: ['schedule'], entries: [{
         slug: ['scheduled'],
         path: 'scheduled.md',
         draft: false,
         data: { title: 'Scheduled' },
         ext: { schedule: { publishDate: '1970-01-01T00:00:01Z', publishAtMs: 1_000 } },
-        body: { markdown: 'secret', code: '', toc: [], structuredData: { headings: [], contents: [] } },
-      }] } },
+        body: { markdown: 'secret', processedMarkdown: 'secret', code: '', toc: [], structuredData: { headings: [], contents: [] } },
+      }], metas: [] } },
     };
     const source = createFumadocsSource(content, { now: () => new Date(now), plugins: [schedule()] });
     expect((await source.getSource()).getPages()).toHaveLength(0);
@@ -200,8 +200,10 @@ describe('createFumadocsSource', () => {
     const source = createFumadocsSource({
       schemaVersion: 3,
       collections: { default: {
+        baseUrl: '/',
         plugins: ['schedule'],
         entries: [entry('published', 10), entry('scheduled', 20), entry('draft', null, true)],
+        metas: [],
       } },
     }, { now: () => new Date(now), plugins: [schedule()] });
 
@@ -217,12 +219,12 @@ describe('createFumadocsSource', () => {
   it('previews only the explicitly requested draft and future dimensions', async () => {
     const factory = createFumadocsSource({
       schemaVersion: 3,
-      collections: { default: { i18n: undefined, plugins: ['schedule'], entries: [
+      collections: { default: { baseUrl: '/', i18n: undefined, plugins: ['schedule'], entries: [
           entry('public', null),
           entry('draft', null, true),
           entry('future', 20),
           entry('draft-future', 20, true),
-        ] } },
+        ], metas: [] } },
     }, { now: () => new Date(10), plugins: [schedule()] });
     const slugs = async (options?: Parameters<typeof factory.getPreviewSource>[0]) =>
       (await factory.getPreviewSource(options)).getPages().map((page) => page.slugs[0]).sort();
@@ -260,9 +262,11 @@ describe('createFumadocsSource', () => {
     const factory = createFumadocsSource({
       schemaVersion: 3,
       collections: { default: {
+        baseUrl: '/',
         i18n: undefined,
         plugins: ['schedule', 'observed'],
         entries: [entry('future', 20)],
+        metas: [],
       } },
     }, { now: () => new Date(now), plugins: [schedule(), observed] });
 
@@ -300,9 +304,11 @@ describe('createFumadocsSource', () => {
     const factory = createFumadocsSource({
       schemaVersion: 3,
       collections: { default: {
+        baseUrl: '/',
         i18n: undefined,
         plugins: ['schedule', 'trusted-only'],
         entries: [entry('hidden', 20, true), entry('visible', 20, true)],
+        metas: [],
       } },
     }, { now: () => new Date(10), plugins: [schedule(), trustedOnly] });
 
@@ -318,7 +324,9 @@ describe('createFumadocsSource', () => {
     const content: CompiledContent = {
       schemaVersion: 3,
       collections: { default: {
+        baseUrl: '/',
         plugins: ['schedule'],
+        metas: [],
         get entries() {
           entryReads += 1;
           return entries;
@@ -348,7 +356,7 @@ describe('createFumadocsSource', () => {
     ];
     const sourceFactory = createFumadocsSource({
       schemaVersion: 3,
-      collections: { default: { plugins: ['schedule'], entries: pages, metas: [
+      collections: { default: { baseUrl: '/', plugins: ['schedule'], entries: pages, metas: [
         {
           path: 'meta.json',
           data: { title: 'Docs', description: 'Root docs', pages: ['guide', 'root-page'] },
@@ -420,11 +428,11 @@ describe('createFumadocsSource', () => {
     const slugInputs: string[] = [];
     const sourceFactory = createFumadocsSource({
       schemaVersion: 3,
-      collections: { default: { plugins: ['schedule'], entries: [
+      collections: { default: { baseUrl: '/', plugins: ['schedule'], entries: [
         { ...entry('published', 10), data: { title: 'Zulu', icon: 'Book' } },
         { ...entry('scheduled', 20), data: { title: 'Alpha', icon: 'Rocket' } },
         { ...entry('draft', null, true), data: { title: 'Draft', icon: 'Lock' } },
-      ] } },
+      ], metas: [] } },
     }, {
       now: () => new Date(now),
       plugins: [schedule()],
@@ -483,7 +491,7 @@ describe('createFumadocsSource', () => {
   it('rejects pageTree.url so page and navigation URLs cannot drift', () => {
     expect(() => createFumadocsSource({
       schemaVersion: 3,
-      collections: { default: { plugins: [], entries: [entry('page', null)] } },
+      collections: { default: { baseUrl: '/', plugins: [], entries: [entry('page', null)], metas: [] } },
     }, {
       pageTree: { url: () => '/split' } as never,
     })).toThrow(/pageTree\.url is unsupported; use the top-level url option/);
@@ -493,7 +501,7 @@ describe('createFumadocsSource', () => {
     const page = { ...entry('file-name', null), slug: ['frontmatter-slug'] };
     const source = await createFumadocsSource({
       schemaVersion: 3,
-      collections: { default: { plugins: [], entries: [page] } },
+      collections: { default: { baseUrl: '/', plugins: [], entries: [page], metas: [] } },
     }, { slugs: () => undefined }).getSource();
 
     expect(source.getPage(['frontmatter-slug'])?.path).toBe('file-name.md');

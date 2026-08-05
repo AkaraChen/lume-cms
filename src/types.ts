@@ -11,8 +11,8 @@ export interface TocItem {
 export interface CompiledBody {
   /** Original Markdown/MDX source body, without frontmatter. */
   markdown: string;
-  /** Pure Markdown produced after remark transforms; optional for older schema v2 artifacts. */
-  processedMarkdown?: string;
+  /** Pure Markdown produced after remark transforms. */
+  processedMarkdown: string;
   /** Compiled MDX function body, evaluated on the server to render React. */
   code: string;
   toc: TocItem[];
@@ -51,13 +51,12 @@ export interface CompileDiagnostic {
 
 export interface CompiledCollection<Data extends Record<string, unknown> = Record<string, unknown>> {
   /** Public route prefix used by diagnostics and the matching Fumadocs loader. */
-  baseUrl?: string;
-  /** Optional for backwards compatibility; present when compilation used Fumadocs i18n. */
+  baseUrl: string;
+  /** Present when compilation used Fumadocs i18n. */
   i18n?: CompiledI18nConfig;
   plugins: string[];
   entries: CompiledEntry<Data>[];
-  /** Optional for artifacts created before meta support. */
-  metas?: CompiledMeta[];
+  metas: CompiledMeta[];
   /** Deterministic build diagnostics for this isolated collection. */
   diagnostics?: CompileDiagnostic[];
 }

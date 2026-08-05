@@ -19,7 +19,7 @@ async function fixture() {
 };
 `);
   await writeFile(path.join(cwd, 'lume.config.ts'), `import plugin from './plugin';
-export default { content: { include: ['content/**/*.md'] }, plugins: [plugin] };
+export default { collections: { default: { include: ['content/**/*.md'] } }, plugins: [plugin] };
 `);
   return cwd;
 }
@@ -105,7 +105,7 @@ describe('watchContent', () => {
 
     previousBuilds = builds.length;
     await writeFile(path.join(cwd, 'lume.config.ts'), `import plugin from './plugin';
-export default { content: { include: ['content/a.md'] }, plugins: [plugin] };
+export default { collections: { default: { include: ['content/a.md'] } }, plugins: [plugin] };
 `);
     const changedConfig = await nextBuild(previousBuilds, (result) => (
       result.content.collections.default?.entries.length === 1
@@ -119,5 +119,36 @@ export default { content: { include: ['content/a.md'] }, plugins: [plugin] };
     await writeFile(path.join(cwd, 'content/a.md'), '---\ntitle: Closed\n---\nClosed');
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(builds).toHaveLength(completedBuilds);
+  });
+
+  it('rebuilds when a collection root outside cwd changes', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'lume-cms-watch-external-'));
+    dirs.push(root);
+    const cwd = path.join(root, 'site');
+    const shared = path.join(root, 'shared');
+    await mkdir(cwd, { recursive: true });
+    await mkdir(shared, { recursive: true });
+    await writeFile(path.join(shared, 'page.md'), '---\ntitle: Before\n---\nBefore');
+    await writeFile(path.join(cwd, 'lume.config.ts'), `export default {
+  collections: { default: { root: '../shared', include: ['../shared/**/*.md'] } },
+};
+`);
+
+    const builds: WatchBuildResult[] = [];
+    const watcher = await watchContent({
+      cwd,
+      debounceMs: 10,
+      onBuild: (result) => { builds.push(result); },
+    });
+    expect(builds.at(-1)?.content.collections.default?.entries[0]?.data.title).toBe('Before');
+
+    const previousBuilds = builds.length;
+    await writeFile(path.join(shared, 'page.md'), '---\ntitle: After\n---\nAfter');
+    await vi.waitFor(() => {
+      expect(builds.slice(previousBuilds).some((result) => (
+        result.content.collections.default?.entries[0]?.data.title === 'After'
+      ))).toBe(true);
+    });
+    await watcher.close();
   });
 });

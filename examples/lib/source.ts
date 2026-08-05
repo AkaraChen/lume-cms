@@ -3,7 +3,7 @@ import { cache } from 'react';
 import { collection, createFumadocsSources, type CompiledContent } from 'lume-cms';
 import { lucideIconsPlugin } from 'fumadocs-core/source/lucide-icons';
 import { schedule } from 'lume-cms/schedule';
-import { docsContentRoute, docsImageRoute, docsRoute } from './shared';
+import { docsContentRoute, docsImageRoute } from './shared';
 
 interface PageFrontmatter extends Record<string, unknown> {
   title: string;
@@ -21,11 +21,10 @@ export const { sources, getAllSources, getAllPages } = createFumadocsSources(
     now: requestNow,
     collections: {
       docs: collection({
-        baseUrl: docsRoute,
         plugins: [schedule()],
         loaderPlugins: [lucideIconsPlugin()],
       }),
-      blog: collection({ baseUrl: '/blog', plugins: [schedule()] }),
+      blog: collection({ plugins: [schedule()] }),
     },
   },
 );

@@ -114,7 +114,7 @@ title: Home
       cwd,
       write: false,
       strict: true,
-      config: { content: { baseUrl: '/docs/' } },
+      config: { collections: { default: { baseUrl: '/docs/' } } },
     });
 
     expect(result.collections.default?.baseUrl).toBe('/docs');
@@ -122,7 +122,6 @@ title: Home
     const source = await createFumadocsSource(result).getSource();
     expect(source.getPage(['guide'])?.url).toBe('/docs/guide');
     expect(source.getPage(['manual'])?.url).toBe('/docs/manual');
-    expect(() => createFumadocsSource(result, { baseUrl: '/other' })).toThrow(/does not match compiled baseUrl/);
   });
 
   it('validates every source entry without treating draft or scheduled targets as missing', async () => {

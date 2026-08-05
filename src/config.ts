@@ -31,8 +31,6 @@ export const defaultPageSchema = officialPageSchema.extend({
   tags: z.array(z.string()).optional(),
 });
 export const defaultMetaSchema = officialMetaSchema;
-/** @deprecated Use defaultPageSchema. */
-export const defaultFrontmatterSchema = defaultPageSchema;
 
 export type ContentSchema = StandardSchemaV1<unknown, Record<string, unknown>>;
 
@@ -53,8 +51,6 @@ export interface CollectionConfig {
 }
 
 export interface LumeConfig {
-  /** @deprecated Use `collections` instead. */
-  content?: CollectionConfig;
   collections?: Record<string, CollectionConfig>;
   output?: string;
   /** Default plugins for collections that do not declare their own list. */

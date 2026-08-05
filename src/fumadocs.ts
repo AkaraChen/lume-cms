@@ -106,8 +106,6 @@ export interface FumadocsCollectionOptions<
   Data extends Record<string, unknown> = Record<string, unknown>,
   Plugins extends readonly AnyLumePlugin[] = readonly AnyLumePlugin[],
 > {
-  /** Compatibility fallback for schema v2 output created before baseUrl was persisted. */
-  baseUrl?: string;
   /** Official Fumadocs config; checked against the compiled i18n contract when both are present. */
   i18n?: I18nConfig;
   /** Override the public URL for pages and page-tree nodes. */
@@ -189,9 +187,6 @@ function bodyComponent(body: CompiledBody): BodyComponent {
 }
 
 function assertCompiledContent(content: CompiledContent) {
-  if (content.schemaVersion === (1 as number) || content.schemaVersion === (2 as number)) {
-    throw new TypeError(`Unsupported lume-cms compiled content schema version ${content.schemaVersion}; rebuild content with a version that emits schema version 3`);
-  }
   if (content.schemaVersion !== 3 || !content.collections || typeof content.collections !== 'object') {
     throw new TypeError('Unsupported lume-cms compiled content schema');
   }
@@ -239,14 +234,7 @@ function createCollectionSource<
   if (options.pageTree && 'url' in options.pageTree) {
     throw new TypeError('pageTree.url is unsupported; use the top-level url option');
   }
-  const compiledBaseUrl = compiled.baseUrl === undefined ? undefined : normalizeBaseUrl(compiled.baseUrl);
-  const fallbackBaseUrl = options.baseUrl === undefined ? undefined : normalizeBaseUrl(options.baseUrl);
-  if (compiledBaseUrl && fallbackBaseUrl && compiledBaseUrl !== fallbackBaseUrl) {
-    throw new TypeError(
-      `Runtime baseUrl ${JSON.stringify(fallbackBaseUrl)} does not match compiled baseUrl ${JSON.stringify(compiledBaseUrl)} for collection ${JSON.stringify(name)}`,
-    );
-  }
-  const baseUrl = compiledBaseUrl ?? fallbackBaseUrl ?? '/';
+  const baseUrl = normalizeBaseUrl(compiled.baseUrl);
   const compiledI18n = compiled.i18n ? normalizeI18n(compiled.i18n) : undefined;
   const runtimeI18n = options.i18n ? normalizeI18n(options.i18n) : undefined;
   if (!compiledI18n && runtimeI18n) {
@@ -303,7 +291,7 @@ function createCollectionSource<
 
   function filesAt(listed: readonly ResolvedState[]): ReturnType<DynamicSource<SourceConfig>['files']> {
     return [
-      ...(compiled.metas ?? []).map((meta) => ({
+      ...compiled.metas.map((meta) => ({
         type: 'meta' as const,
         path: meta.path,
         data: meta.data,
@@ -318,7 +306,7 @@ function createCollectionSource<
               : compiledEntry.slug.join('/') || 'index',
             body: bodyComponent(compiledEntry.body),
             content: compiledEntry.body.markdown,
-            processedMarkdown: compiledEntry.body.processedMarkdown ?? compiledEntry.body.markdown,
+            processedMarkdown: compiledEntry.body.processedMarkdown,
             toc: compiledEntry.body.toc,
             structuredData: compiledEntry.body.structuredData,
             ...entry.dataPatch,
@@ -429,8 +417,7 @@ export function createFumadocsSources<
   const baseUrls = new Map<string, string>();
   for (const name of runtimeNames) {
     const compiledBaseUrl = content.collections[name]!.baseUrl;
-    const runtimeBaseUrl = options.collections[name]!.baseUrl;
-    const baseUrl = normalizeBaseUrl(compiledBaseUrl ?? runtimeBaseUrl);
+    const baseUrl = normalizeBaseUrl(compiledBaseUrl);
     const existing = baseUrls.get(baseUrl);
     if (existing) throw new TypeError(`Collections ${JSON.stringify(existing)} and ${JSON.stringify(name)} use the same baseUrl ${JSON.stringify(baseUrl)}`);
     baseUrls.set(baseUrl, name);

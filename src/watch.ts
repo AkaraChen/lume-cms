@@ -50,7 +50,9 @@ export async function watchContent(options: WatchContentOptions = {}): Promise<C
     try {
       const config = await loadLumeConfig(cwd);
       outputPaths.add(path.resolve(cwd, config.output ?? 'content.generated.json'));
-      watcher.add(path.resolve(cwd, config.content?.root ?? 'content'));
+      for (const collection of Object.values(config.collections ?? { default: {} })) {
+        watcher.add(path.resolve(cwd, collection.root ?? 'content'));
+      }
       const content = await compileContent({ cwd, config, cache, strict: options.strict });
       const result = { content, stats: { ...cache.stats } };
       await options.onBuild?.(result);

@@ -83,11 +83,11 @@ describe('compileContent', () => {
     })).rejects.toThrow(/both collections "blog" and "docs"|both collections "docs" and "blog"/);
   });
 
-  it('normalizes deprecated content config to the same default collection', async () => {
+  it('normalizes an omitted config to the same explicit default collection', async () => {
     const cwd = await fixture({ 'content/page.md': '---\ntitle: Page\n---\nBody' });
-    const legacy = await compileContent({ cwd, write: false, config: { content: {} } });
+    const implicit = await compileContent({ cwd, write: false });
     const current = await compileContent({ cwd, write: false, config: { collections: { default: {} } } });
-    expect(serializeCompiledContent(legacy)).toBe(serializeCompiledContent(current));
+    expect(serializeCompiledContent(implicit)).toBe(serializeCompiledContent(current));
   });
 
   it('compiles frontmatter Markdown with a Valibot schema', async () => {
@@ -220,7 +220,7 @@ pnpm add lume-cms
     await expect(compileContent({
       cwd,
       write: false,
-      config: { content: { schema: v.looseObject({ title: v.string(), category: v.literal('docs') }) } },
+      config: { collections: { default: { schema: v.looseObject({ title: v.string(), category: v.literal('docs') }) } } },
     })).rejects.toThrow(/content\/bad\.md: invalid frontmatter/);
   });
 
@@ -239,7 +239,7 @@ pnpm add lume-cms
       },
     } satisfies StandardSchemaV1<unknown, Record<string, unknown>>;
 
-    const result = await compileContent({ cwd, write: false, config: { content: { schema } } });
+    const result = await compileContent({ cwd, write: false, config: { collections: { default: { schema } } } });
     expect(result.collections.default!.entries[0]?.data.title).toBe('Standard');
   });
 
@@ -250,7 +250,7 @@ pnpm add lume-cms
     const result = await compileContent({
       cwd,
       write: false,
-      config: { content: { root: 'content/docs', include: ['content/docs/**/*.mdx'] } },
+      config: { collections: { default: { root: 'content/docs', include: ['content/docs/**/*.mdx'] } } },
     });
     expect(result.collections.default!.entries[0]).toMatchObject({ slug: [], path: 'index.mdx' });
     expect(result.collections.default!.entries[0]?.body.structuredData.headings[0]?.content).toBe('Searchable heading');
@@ -300,10 +300,10 @@ Body`,
       cwd,
       write: false,
       config: {
-        content: {
+        collections: { default: {
           schema: defaultPageSchema.extend({ category: z.literal('docs') }),
           metaSchema: defaultMetaSchema.extend({ badge: z.string() }),
-        },
+        } },
       },
     });
     expect(extended.collections.default!.entries[0]?.data).toEqual({ title: 'Extended', category: 'docs' });
@@ -317,7 +317,7 @@ Body`,
     const replaced = await compileContent({
       cwd,
       write: false,
-      config: { content: { schema: replacement } },
+      config: { collections: { default: { schema: replacement } } },
     });
     expect(replaced.collections.default!.entries[0]?.data).toEqual({ title: 'Replaced', score: 42 });
     expect(replaced.collections.default!.entries[0]).toMatchObject({ draft: true, slug: ['private', 'path'] });
@@ -332,7 +332,7 @@ Body`,
       slug: z.string().default('seed').transform(() => 'leak'),
     });
 
-    await expect(compileContent({ cwd, write: false, config: { content: { schema } } }))
+    await expect(compileContent({ cwd, write: false, config: { collections: { default: { schema } } } }))
       .rejects.toThrow(/schema output: reserved private fields draft\/slug are forbidden/);
   });
 
@@ -350,7 +350,7 @@ Body`,
       },
     } satisfies StandardSchemaV1<unknown, Record<string, unknown>>;
 
-    await expect(compileContent({ cwd, write: false, config: { content: { schema } } }))
+    await expect(compileContent({ cwd, write: false, config: { collections: { default: { schema } } } }))
       .rejects.toThrow(/schema output: reserved private fields draft\/slug are forbidden/);
   });
 
@@ -371,7 +371,7 @@ Body`,
       'docs/nested/meta.json': '{"title":"Nested"}',
       'docs/nested/page.mdx': '---\ntitle: Nested page\n---\nNested',
     });
-    const config = { content: { root: 'docs', include: ['docs/**/*'] } };
+    const config = { collections: { default: { root: 'docs', include: ['docs/**/*'] } } };
     const one = await compileContent({ cwd, write: false, config });
     const two = await compileContent({ cwd, write: false, config });
 
@@ -420,7 +420,7 @@ Body`,
     await expect(compileContent({
       cwd: invalidPrivate,
       write: false,
-      config: { content: { schema: v.object({ title: v.string() }) } },
+      config: { collections: { default: { schema: v.object({ title: v.string() }) } } },
     })).rejects.toThrow(/invalid private frontmatter: draft must be a boolean/);
   });
 
@@ -448,7 +448,7 @@ Body`,
   it('loads lume.config.ts through c12 and writes the configured output', async () => {
     const cwd = await fixture({
       'articles/page.md': '---\ntitle: Page\n---\nBody',
-      'lume.config.ts': "export default { content: { root: 'articles', include: ['articles/**/*.md'] }, output: 'out.json' }",
+      'lume.config.ts': "export default { collections: { default: { root: 'articles', include: ['articles/**/*.md'] } }, output: 'out.json' }",
     });
     await compileContent({ cwd });
     const output = JSON.parse(await readFile(path.join(cwd, 'out.json'), 'utf8'));
