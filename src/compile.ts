@@ -23,6 +23,7 @@ import type {
 } from './types.js';
 import { assertPluginIds, type AnyLumePlugin } from './plugin.js';
 import { normalizeBaseUrl } from './url.js';
+import { normalizeI18n, parseI18nPath, type CompiledI18nConfig } from './i18n.js';
 import {
   createReferenceCollector,
   validateReferences,
@@ -195,12 +196,18 @@ async function validate(schema: ContentSchema, value: unknown, sourcePath: strin
   return result.value;
 }
 
-function assertUniqueSlugs(entries: CompiledEntry[]) {
+function assertUniqueSlugs(entries: CompiledEntry[], i18n?: CompiledI18nConfig) {
   const seen = new Set<string>();
   for (const entry of entries) {
     const slug = entry.slug.join('/');
-    if (seen.has(slug)) throw new Error(`Duplicate content slug: ${slug}`);
-    seen.add(slug);
+    const locales = entry.locale === '$' ? i18n?.languages ?? ['$'] : [entry.locale ?? ''];
+    for (const locale of locales) {
+      const key = `${locale}\0${slug}`;
+      if (seen.has(key)) {
+        throw new Error(`Duplicate content slug in locale ${JSON.stringify(locale)}: ${slug}`);
+      }
+      seen.add(key);
+    }
   }
 }
 
@@ -225,7 +232,12 @@ function normalizedCollections(config: LumeConfig) {
 
 async function collectionFiles(
   cwd: string,
-  collections: Record<string, { include?: string[]; exclude?: string[]; root?: string }>,
+  collections: Record<string, {
+    include?: string[];
+    exclude?: string[];
+    root?: string;
+    i18n?: Parameters<typeof normalizeI18n>[0];
+  }>,
 ) {
   const result = new Map<string, { pages: string[]; metas: string[] }>();
   const owners = new Map<string, string>();
@@ -238,11 +250,16 @@ async function collectionFiles(
       unique: true as const,
     };
     const rootPattern = path.relative(cwd, path.resolve(cwd, item.root ?? 'content')).replace(/\\/g, '/');
-    const [pageFiles, metaFiles] = await Promise.all([
+    const i18n = item.i18n ? normalizeI18n(item.i18n) : undefined;
+    const metaGlob = i18n && i18n.parser !== 'dir' ? 'meta{,.*}.json' : 'meta.json';
+    const [pageFiles, discoveredMetaFiles] = await Promise.all([
       fg(item.include ?? ['content/**/*.{md,mdx,markdown}'], globOptions),
-      fg(path.posix.join(rootPattern, '**/meta.json'), globOptions),
+      fg(path.posix.join(rootPattern, `**/${metaGlob}`), globOptions),
     ]);
-    const metas = metaFiles.sort();
+    const metas = discoveredMetaFiles.filter((sourcePath) => {
+      const contentPath = relativeContentPath(path.resolve(cwd, item.root ?? 'content'), path.resolve(cwd, sourcePath));
+      return path.posix.basename(parseI18nPath(contentPath, i18n).path) === 'meta.json';
+    }).sort();
     const metaSet = new Set(metas);
     const pages = pageFiles.filter((sourcePath) => !metaSet.has(sourcePath)).sort();
     for (const sourcePath of [...pages, ...metas]) {
@@ -303,15 +320,17 @@ async function compileEntry(
   contentPath: string,
   schema: ContentSchema,
   plugins: readonly AnyLumePlugin[],
+  i18n?: CompiledI18nConfig,
 ): Promise<CompiledUnit> {
   const parsed = frontmatter(raw);
+  const localizedPath = parseI18nPath(contentPath, i18n);
   const privateData = privateFrontmatter(parsed.data, sourcePath);
   const { draft: _draft, slug: _slug, ...publicFrontmatter } = parsed.data as Record<string, unknown>;
   const data = { ...await validate(schema, publicFrontmatter, sourcePath, 'frontmatter') };
   assertNoPrivatePageData(data, sourcePath);
   const slug = privateData.slug !== undefined
     ? privateData.slug.split('/').filter(Boolean)
-    : getSlugs(contentPath);
+    : getSlugs(localizedPath.path);
   const ext: Record<string, unknown> = {};
   for (const plugin of plugins) {
     let pluginFrontmatter: Record<string, unknown> = {};
@@ -338,6 +357,7 @@ async function compileEntry(
   return {
     entry: {
       slug,
+      locale: localizedPath.locale,
       path: contentPath,
       draft: privateData.draft,
       data,
@@ -371,6 +391,7 @@ export async function compileContent(options: CompileOptions = {}): Promise<Comp
   for (const name of Object.keys(configured).sort()) {
     const definition = configured[name]!;
     const baseUrl = normalizeBaseUrl(definition.baseUrl);
+    const i18n = definition.i18n ? normalizeI18n(definition.i18n) : undefined;
     const contentRoot = path.resolve(cwd, definition.root ?? 'content');
     const schema = definition.schema ?? defaultPageSchema;
     const metaSchema = definition.metaSchema ?? defaultMetaSchema;
@@ -386,13 +407,13 @@ export async function compileContent(options: CompileOptions = {}): Promise<Comp
       const fileDigest = digest(fingerprint, name, sourcePath, raw);
       const meta = cache?.getMeta(sourcePath, fileDigest) ?? {
         path: relativeContentPath(contentRoot, absolutePath),
+        locale: parseI18nPath(relativeContentPath(contentRoot, absolutePath), i18n).locale,
         data: await parseMeta(raw, sourcePath, metaSchema),
       };
       cache?.setMeta(sourcePath, fileDigest, meta);
       metaPaths.add(sourcePath);
       metas.push(meta);
     }
-
     for (const sourcePath of files.get(name)!.pages) {
       const absolutePath = path.resolve(cwd, sourcePath);
       const contentPath = relativeContentPath(contentRoot, absolutePath);
@@ -401,7 +422,7 @@ export async function compileContent(options: CompileOptions = {}): Promise<Comp
       let unit = cache?.getEntry(sourcePath, fileDigest);
       if (unit) cachedEntries += 1;
       else {
-        unit = await compileEntry(raw, sourcePath, contentPath, schema, plugins);
+        unit = await compileEntry(raw, sourcePath, contentPath, schema, plugins, i18n);
         cache?.setEntry(sourcePath, fileDigest, unit);
         compiledEntries += 1;
       }
@@ -410,13 +431,18 @@ export async function compileContent(options: CompileOptions = {}): Promise<Comp
       referenceEntries.push({ sourcePath, ...unit });
     }
 
-    entries.sort((a, b) => a.slug.join('/').localeCompare(b.slug.join('/')));
-    assertUniqueSlugs(entries);
+    entries.sort((a, b) => (
+      (a.locale ?? '').localeCompare(b.locale ?? '')
+      || a.slug.join('/').localeCompare(b.slug.join('/'))
+      || a.path.localeCompare(b.path)
+    ));
+    assertUniqueSlugs(entries, i18n);
     for (const plugin of plugins) await plugin.compile?.finalize?.(entries, pluginContext);
-    const diagnostics = await validateReferences(cwd, referenceEntries, baseUrl);
+    const diagnostics = await validateReferences(cwd, referenceEntries, baseUrl, i18n);
     allDiagnostics.push(...diagnostics);
     collections[name] = {
       baseUrl,
+      i18n,
       plugins: plugins.map((plugin) => plugin.id),
       entries,
       metas,

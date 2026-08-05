@@ -60,6 +60,7 @@ if (schedule().id !== 'schedule') throw new Error('The published schedule entry 
 const {
   defaultMetaSchema,
   defaultPageSchema,
+  defineI18n,
   officialMetaSchema,
   officialPageSchema,
 } = await import('../dist/config.mjs');
@@ -71,6 +72,10 @@ if (!defaultMetaSchema.safeParse({ title: 'Docs', pages: ['index'] }).success) {
 }
 if (officialPageSchema === undefined || officialMetaSchema === undefined) {
   throw new Error('The published official Fumadocs schema baselines are missing');
+}
+const i18n = defineI18n({ languages: ['en', 'zh'], defaultLanguage: 'en', parser: 'dot' });
+if (i18n.defaultLanguage !== 'en' || typeof i18n.translations !== 'function') {
+  throw new Error('The published defineI18n export is not usable');
 }
 
 const fixture = mkdtempSync(path.join(tmpdir(), 'lume-cms-package-'));

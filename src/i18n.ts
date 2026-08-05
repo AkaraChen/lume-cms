@@ -1,0 +1,86 @@
+import path from 'node:path';
+import type { I18nConfig } from 'fumadocs-core/i18n';
+
+export interface CompiledI18nConfig {
+  languages: string[];
+  defaultLanguage: string;
+  parser: 'dot' | 'dir' | 'none';
+  fallbackLanguage: string | null;
+  hideLocale: 'always' | 'default-locale' | 'never';
+}
+
+export function normalizeI18n(config: I18nConfig): CompiledI18nConfig {
+  const languages = [...config.languages];
+  if (
+    languages.length === 0
+    || languages.some((language) => typeof language !== 'string' || language.length === 0)
+    || new Set(languages).size !== languages.length
+  ) {
+    throw new TypeError('i18n.languages must contain unique non-empty language codes');
+  }
+  if (!languages.includes(config.defaultLanguage)) {
+    throw new TypeError('i18n.defaultLanguage must be included in i18n.languages');
+  }
+  const parser = config.parser ?? 'dot';
+  if (parser !== 'dot' && parser !== 'dir' && parser !== 'none') {
+    throw new TypeError('i18n.parser must be "dot", "dir", or "none"');
+  }
+  const fallbackLanguage = config.fallbackLanguage === undefined
+    ? config.defaultLanguage
+    : config.fallbackLanguage;
+  if (fallbackLanguage !== null && !languages.includes(fallbackLanguage)) {
+    throw new TypeError('i18n.fallbackLanguage must be null or included in i18n.languages');
+  }
+  const hideLocale = config.hideLocale ?? 'never';
+  if (hideLocale !== 'always' && hideLocale !== 'default-locale' && hideLocale !== 'never') {
+    throw new TypeError('i18n.hideLocale must be "always", "default-locale", or "never"');
+  }
+  return { languages, defaultLanguage: config.defaultLanguage, parser, fallbackLanguage, hideLocale };
+}
+
+export function parseI18nPath(filePath: string, i18n?: CompiledI18nConfig) {
+  if (!i18n) return { path: filePath, locale: undefined, locales: [''] };
+  if (i18n.parser === 'dir') {
+    const [locale, ...segments] = filePath.split('/');
+    if (segments.length > 0 && (i18n.languages.includes(locale) || locale === '$')) {
+      return {
+        path: segments.join('/'),
+        locale,
+        locales: locale === '$' ? i18n.languages : [locale],
+      };
+    }
+  } else {
+    const segments = filePath.split('/');
+    const base = segments.pop();
+    const parts = base?.split('.') ?? [];
+    if (parts.length >= 3) {
+      const locale = parts.at(-2)!;
+      if (i18n.languages.includes(locale) || locale === '$') {
+        parts.splice(-2, 1);
+        segments.push(parts.join('.'));
+        return {
+          path: segments.join('/'),
+          locale,
+          locales: locale === '$' ? i18n.languages : [locale],
+        };
+      }
+    }
+  }
+  return { path: filePath, locale: i18n.defaultLanguage, locales: [i18n.defaultLanguage] };
+}
+
+export function i18nUrl(baseUrl: string, slugs: string[], locale: string, i18n?: CompiledI18nConfig) {
+  const segments = [...baseUrl.split('/'), ...slugs];
+  if (
+    i18n
+    && i18n.hideLocale !== 'always'
+    && (i18n.hideLocale !== 'default-locale' || locale !== i18n.defaultLanguage)
+  ) {
+    segments.unshift(locale);
+  }
+  return `/${segments.filter(Boolean).join('/')}`;
+}
+
+export function localePathKey(locale: string, value: string) {
+  return `${locale}\0${path.posix.normalize(value)}`;
+}

@@ -79,6 +79,49 @@ Both slots accept any Standard Schema instead, including Valibot 1 and custom im
 
 Schema additions in a future compatible Fumadocs release flow into the defaults because lume-cms imports the official objects rather than copying their shapes. Every Fumadocs upgrade must run the schema conformance tests and review deterministic output changes. Additive official fields remain schema v2; removals or incompatible type changes require a compiled-schema migration. A user-supplied replacement intentionally opts out of automatic additions until that schema is updated.
 
+## Internationalization
+
+Use the official `defineI18n()` contract from `lume-cms/config` (a direct Fumadocs re-export) as the single compile/runtime configuration:
+
+```ts
+import { defineConfig, defineI18n } from 'lume-cms/config';
+
+export const i18n = defineI18n({
+  languages: ['en', 'zh'],
+  defaultLanguage: 'en',
+  fallbackLanguage: 'en', // use null to disable missing-translation fallback
+  parser: 'dot',
+});
+
+export default defineConfig({
+  baseUrl: '/docs',
+  i18n,
+});
+```
+
+The two official file layouts are supported for pages and `meta.json`:
+
+| Parser | Default language | Chinese translation |
+| --- | --- | --- |
+| `dot` | `guide/page.mdx`, `guide/meta.json` | `guide/page.zh.mdx`, `guide/meta.zh.json` |
+| `dir` | `en/guide/page.mdx`, `en/guide/meta.json` | `zh/guide/page.mdx`, `zh/guide/meta.json` |
+
+Unmarked dot files belong to `defaultLanguage`; `$` in the locale position shares a file across all languages, matching Fumadocs storage semantics. Compilation persists the normalized i18n config and each file's locale, derives slugs after removing the locale marker, and checks duplicate slugs per locale. Thus the same slug can exist in English and Chinese but still fails when duplicated within one language.
+
+Pass the same object at runtime to detect configuration drift (new artifacts can also use the persisted config without repeating it):
+
+```ts
+import content from './content.generated.json';
+import { createFumadocsSource } from 'lume-cms';
+import { i18n } from './lume.config';
+
+export const { getSource } = createFumadocsSource(content, { i18n });
+```
+
+The returned official loader supports `getPage(slugs, locale)`, `getPages(locale)`, `getPageTree(locale)`, and `getLanguages()`. With the default `hideLocale: 'never'`, `baseUrl: '/docs'` produces `/en/docs/guide` and `/zh/docs/guide`; Fumadocs' `always` and `default-locale` modes are passed through unchanged. Missing translations inherit `fallbackLanguage` (the default language by default), while `fallbackLanguage: null` disables inheritance. Every locale is built from the same filtered dynamic files: draft content never appears, scheduled translations become visible only at their deadline, and fallback cannot expose a filtered body from another locale.
+
+The runnable `examples/i18n/` fixture shows a two-language dot layout, localized meta files, shared compile/runtime config, and strict reference validation.
+
 Markdown and MDX use Fumadocs' public YAML frontmatter parser and `mdxPreset()`, matching the official starter baseline: GFM, heading IDs, images, code tabs, npm install blocks, Shiki code highlighting, structured search data, and table-of-contents extraction. `meta.json` is the only JSON content input and is passed to Fumadocs as a native meta file. Its `title`, `description`, `icon`, `root`, `defaultOpen`, `collapsible`, `pages`, and `pagesIndex` fields therefore control the page tree with Fumadocs' standard ordering, separators, folder expansion, exclusions, and external-link syntax. The Markdown pipeline is not configurable. The compiler stores a deterministic MDX function body in JSON. Raw HTML in Markdown is deliberately discarded; do not enable `allowDangerousHtml`/`rehype-raw` without adding an explicit sanitization policy. Run `lume-cms build` to generate stable JSON. Entries, meta files, and object keys are sorted, paths are relative, line endings are stable, and no timestamp or machine path is emitted.
 
 For local editing, run `lume-cms build --watch`. The first build is clean; later builds reuse an in-memory cache keyed by source path and content plus the resolved content configuration, schema, compiler version, plugin implementation, and plugin `compile.cacheKey`. Add, change, rename, and delete events update the same deterministic output without restarting the process. Configuration and local plugin source changes are reloaded and invalidate affected cache entries. A failed rebuild reports the error, keeps the last successful output, and continues watching so the next edit can recover. Custom plugins whose behavior depends on closed-over options should expose a stable `compile.cacheKey` containing those options.

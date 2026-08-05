@@ -2,8 +2,11 @@ import { loadConfig } from 'c12';
 import { metaSchema as fumadocsMetaSchema, pageSchema as fumadocsPageSchema } from 'fumadocs-core/source/schema';
 import { z } from 'zod';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
+import type { I18nConfig } from 'fumadocs-core/i18n';
 import type { AnyLumePlugin } from './plugin.js';
 
+export { defineI18n } from 'fumadocs-core/i18n';
+export type { I18nConfig } from 'fumadocs-core/i18n';
 export { definePlugin } from './plugin.js';
 export type { AnyLumePlugin, LumePlugin } from './plugin.js';
 
@@ -23,6 +26,8 @@ export type ContentSchema = StandardSchemaV1<unknown, Record<string, unknown>>;
 export interface CollectionConfig {
   /** Public route prefix shared by reference validation and the Fumadocs loader. */
   baseUrl?: string;
+  /** The official Fumadocs i18n contract used by this collection at compile and runtime. */
+  i18n?: I18nConfig;
   include?: string[];
   exclude?: string[];
   root?: string;
