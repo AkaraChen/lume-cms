@@ -5,6 +5,7 @@ import { compile as compileMdx } from '@mdx-js/mdx';
 import fg from 'fast-glob';
 import { frontmatter } from 'fumadocs-core/content/md/frontmatter';
 import { mdxPreset } from 'fumadocs-core/content/mdx/preset-runtime';
+import { defaultStringifier } from 'fumadocs-core/mdx-plugins/stringifier';
 import { getSlugs } from 'fumadocs-core/source';
 import {
   defaultMetaSchema,
@@ -99,6 +100,50 @@ export class CompileCache {
   }
 }
 
+const stringifyProcessedMarkdown = defaultStringifier({
+  filterElement(node) {
+    switch (node.type) {
+      case 'mdxjsEsm':
+      case 'mdxFlowExpression':
+      case 'mdxTextExpression':
+      case 'html':
+        return false;
+      case 'mdxJsxFlowElement':
+      case 'mdxJsxTextElement':
+        return 'children-only';
+      default:
+        return true;
+    }
+  },
+  stringify(node) {
+    if (
+      (node.type !== 'mdxJsxFlowElement' && node.type !== 'mdxJsxTextElement')
+      || node.children.length > 0
+    ) return;
+    const literals = Object.fromEntries(node.attributes.flatMap((attribute) =>
+      attribute.type === 'mdxJsxAttribute' && typeof attribute.value === 'string'
+        ? [[attribute.name, attribute.value]]
+        : []));
+    const label = literals.title ?? literals.label;
+    if (!label) return;
+    const escapedLabel = label.replace(/([\\`*_[\]<>])/g, '\\$1');
+    return literals.href
+      ? `[${escapedLabel}](${literals.href.replace(/[\s()<>]/g, (character) => encodeURIComponent(character))})`
+      : escapedLabel;
+  },
+});
+
+type MarkdownTree = Parameters<typeof stringifyProcessedMarkdown>[0];
+type MarkdownProcessor = { data(key: string): unknown };
+
+/** Pure-Markdown degradation: drop code/expressions and unwrap JSX while preserving portable text. */
+function remarkProcessedMarkdown(this: MarkdownProcessor) {
+  const processor = this;
+  return (tree: MarkdownTree, file: { data: Record<string, unknown> }) => {
+    file.data.processedMarkdown = stringifyProcessedMarkdown.call(processor as never, tree, undefined);
+  };
+}
+
 async function compileBody(source: string): Promise<CompiledBody & {
   references: ExtractedReference[];
   anchors: string[];
@@ -111,12 +156,15 @@ async function compileBody(source: string): Promise<CompiledBody & {
     development: false,
     remarkHeadingOptions: { generateToc: true },
     remarkImageOptions: { useImport: false },
-    remarkPlugins: [createReferenceCollector(collected)],
+    remarkPlugins: [createReferenceCollector(collected), remarkProcessedMarkdown],
   }));
   const structuredData = file.data.structuredData;
   if (!structuredData) throw new Error('Fumadocs mdxPreset did not produce structured data');
+  const processedMarkdown = file.data.processedMarkdown;
+  if (typeof processedMarkdown !== 'string') throw new Error('Fumadocs mdxPreset did not produce processed Markdown');
   return {
     markdown: source,
+    processedMarkdown,
     code: String(file),
     toc: (file.data.toc ?? []) as CompiledBody['toc'],
     structuredData,

@@ -26,7 +26,10 @@ type BodyComponent = ComponentType<{ components?: Record<string, unknown> }>;
 type LumePageData<Data extends Record<string, unknown> = Record<string, unknown>> = Data & {
   title: string;
   body: BodyComponent;
+  /** Original source body for authoring-aware consumers. */
   content: string;
+  /** Pure Markdown for LLM, Markdown, and EPUB exports. */
+  processedMarkdown: string;
   toc: CompiledBody['toc'];
   structuredData: CompiledBody['structuredData'];
 };
@@ -247,6 +250,7 @@ function createCollectionSource<
             title: typeof entry.data.title === 'string' ? entry.data.title : entry.slug.join('/') || 'index',
             body: bodyComponent(entry.body),
             content: entry.body.markdown,
+            processedMarkdown: entry.body.processedMarkdown ?? entry.body.markdown,
             toc: entry.body.toc,
             structuredData: entry.body.structuredData,
             ...Object.assign({}, ...plugins.map((plugin) => plugin.runtime?.pageData?.(entry) ?? {})),

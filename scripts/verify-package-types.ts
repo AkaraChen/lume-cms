@@ -30,6 +30,8 @@ const i18nContent = {
 async function verifyPublishedPageTreeTypes() {
   const nonI18n = await createFumadocsSource(nonI18nContent).getSource();
   nonI18n.pageTree.children;
+  nonI18n.getPages()[0]?.data.content.toUpperCase();
+  nonI18n.getPages()[0]?.data.processedMarkdown.toUpperCase();
   // @ts-expect-error A non-i18n page tree is one Root, not a locale record.
   nonI18n.pageTree.en;
 
