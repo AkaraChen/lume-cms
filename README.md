@@ -95,7 +95,7 @@ The Fumadocs adapter uses its public `DynamicSource` and `dynamicLoader()` APIs.
 validUntil = next unpublished publishDate, or Infinity when none remain
 ```
 
-It invalidates at that boundary and coalesces concurrent deadline refreshes into one load. Each collection owns its deadline and refresh promise, so a docs deadline does not invalidate blog and vice versa. Pass a request-scoped frozen clock such as React `cache(() => new Date())` at the top level; this keeps navigation, page, metadata, OG, RSS, and search self-consistent when one request happens to cross a publication boundary.
+Each collection caches bounded, immutable loader generations over `[observedAt, validUntil)` intervals. Concurrent reads in one interval coalesce, while an older frozen request keeps its pre-publication generation after a newer request crosses the deadline; evicted generations are safely rebuilt from their frozen time. A docs deadline does not affect blog and vice versa. Pass a request-scoped frozen clock such as React `cache(() => new Date())` at the top level; this keeps navigation, page, metadata, OG, RSS, and search self-consistent when overlapping requests straddle a publication boundary.
 
 ## Next.js requirements
 

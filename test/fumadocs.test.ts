@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { describe, expect, it } from 'vitest';
 import { collection, createFumadocsSource, createFumadocsSources } from '../src/fumadocs.js';
 import type { CompiledContent } from '../src/types.js';
@@ -33,6 +34,52 @@ function starterConsumerSets(
 }
 
 describe('createFumadocsSource', () => {
+  it('keeps an older frozen clock consistent after a newer scope crosses the deadline', async () => {
+    const clock = new AsyncLocalStorage<number>();
+    const source = createFumadocsSource({
+      schemaVersion: 3,
+      collections: { default: { plugins: ['schedule'], entries: [entry('scheduled', 20)] } },
+    }, { now: () => new Date(clock.getStore()!), plugins: [schedule()] });
+
+    const before = await clock.run(19, () => source.getSource());
+    const after = await clock.run(20, () => source.getSource());
+    const beforeAgain = await clock.run(19, () => source.getSource());
+
+    expect(before.getPages()).toHaveLength(0);
+    expect(after.getPages().map((page) => page.slugs[0])).toEqual(['scheduled']);
+    expect(beforeAgain.getPages()).toHaveLength(0);
+  });
+
+  it('keeps concurrent interleaved frozen-clock scopes isolated', async () => {
+    const clock = new AsyncLocalStorage<number>();
+    const source = createFumadocsSource({
+      schemaVersion: 3,
+      collections: { default: { plugins: ['schedule'], entries: [entry('scheduled', 20)] } },
+    }, { now: () => new Date(clock.getStore()!), plugins: [schedule()] });
+    let signalBeforeRead!: () => void;
+    let signalAfterRead!: () => void;
+    const beforeRead = new Promise<void>((resolve) => { signalBeforeRead = resolve; });
+    const afterRead = new Promise<void>((resolve) => { signalAfterRead = resolve; });
+
+    const olderScope = clock.run(19, async () => {
+      const first = await source.getSource();
+      signalBeforeRead();
+      await afterRead;
+      const second = await source.getSource();
+      return [first.getPages(), second.getPages()];
+    });
+    const newerScope = clock.run(20, async () => {
+      await beforeRead;
+      const current = await source.getSource();
+      signalAfterRead();
+      return current.getPages();
+    });
+
+    const [olderPages, newerPages] = await Promise.all([olderScope, newerScope]);
+    expect(olderPages).toEqual([[], []]);
+    expect(newerPages.map((page) => page.slugs[0])).toEqual(['scheduled']);
+  });
+
   it('creates isolated sources and a visibility-safe union across collections', async () => {
     let now = 19;
     const result = createFumadocsSources({

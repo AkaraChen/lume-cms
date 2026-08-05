@@ -97,66 +97,90 @@ function createCollectionSource<
   const plugins = options.plugins ?? [] as unknown as Plugins;
   assertPluginMatch(compiled, plugins, name);
 
-  const source: DynamicSource<{
+  type SourceConfig = {
     pageData: LumePageData<Data & InferPluginData<Plugins>>;
     metaData: MetaData;
-  }> = {
-    files: () => {
-      const at = currentTime();
-      return compiled.entries
-        .filter((entry) => isVisible(entry, plugins, at))
-        .sort((a, b) => {
-          for (const plugin of plugins) {
-            const result = plugin.runtime?.compare?.(a, b) ?? 0;
-            if (result !== 0) return result;
-          }
-          return a.slug.join('/').localeCompare(b.slug.join('/'));
-        })
-        .map((entry) => ({
-          type: 'page' as const,
-          path: entry.path,
-          slugs: entry.slug,
-          data: {
-            ...entry.data,
-            title: typeof entry.data.title === 'string' ? entry.data.title : entry.slug.join('/') || 'index',
-            body: bodyComponent(entry.body),
-            content: entry.body.markdown,
-            toc: entry.body.toc,
-            structuredData: entry.body.structuredData,
-            ...Object.assign({}, ...plugins.map((plugin) => plugin.runtime?.pageData?.(entry) ?? {})),
-          } as LumePageData<Data & InferPluginData<Plugins>>,
-        }));
-    },
   };
-  const loader = dynamicLoader(source, {
-    baseUrl: options.baseUrl ?? '/',
-    plugins: options.loaderPlugins,
-  });
-  let validUntil = -Infinity;
-  let refreshPromise: ReturnType<typeof loader.get> | undefined;
 
-  async function refresh() {
-    loader.invalidate();
-    const value = await loader.get();
-    const refreshedAt = currentTime();
-    validUntil = plugins.reduce(
-      (next, plugin) => Math.min(next, plugin.runtime?.deadline?.(compiled.entries, { nowMs: refreshedAt }) ?? Infinity),
-      Infinity,
-    );
-    return value;
+  function filesAt(at: number): ReturnType<DynamicSource<SourceConfig>['files']> {
+    return compiled.entries
+      .filter((entry) => isVisible(entry, plugins, at))
+      .sort((a, b) => {
+        for (const plugin of plugins) {
+          const result = plugin.runtime?.compare?.(a, b) ?? 0;
+          if (result !== 0) return result;
+        }
+        return a.slug.join('/').localeCompare(b.slug.join('/'));
+      })
+      .map((entry) => ({
+        type: 'page' as const,
+        path: entry.path,
+        slugs: entry.slug,
+        data: {
+          ...entry.data,
+          title: typeof entry.data.title === 'string' ? entry.data.title : entry.slug.join('/') || 'index',
+          body: bodyComponent(entry.body),
+          content: entry.body.markdown,
+          toc: entry.body.toc,
+          structuredData: entry.body.structuredData,
+          ...Object.assign({}, ...plugins.map((plugin) => plugin.runtime?.pageData?.(entry) ?? {})),
+        } as LumePageData<Data & InferPluginData<Plugins>>,
+      }));
   }
 
-  async function getSource() {
-    while (true) {
-      if (currentTime() < validUntil) return loader.get();
-      const active = refreshPromise ??= refresh();
-      try {
-        const value = await active;
-        if (currentTime() < validUntil) return value;
-      } finally {
-        if (refreshPromise === active) refreshPromise = undefined;
+  function deadlineAt(at: number) {
+    return plugins.reduce(
+      (next, plugin) => Math.min(next, plugin.runtime?.deadline?.(compiled.entries, { nowMs: at }) ?? Infinity),
+      Infinity,
+    );
+  }
+
+  type Loader = ReturnType<typeof dynamicLoader<DynamicSource<SourceConfig>>>;
+  interface Generation {
+    from: number;
+    until: number;
+    lastUsed: number;
+    value: ReturnType<Loader['get']>;
+  }
+  // A loader is immutable after creation. Retaining interval generations keeps
+  // overlapping request-scoped clocks isolated even when they arrive out of order.
+  const maxCachedGenerations = 32;
+  const generations: Generation[] = [];
+  let accessCounter = 0;
+
+  function createGeneration(at: number): Generation {
+    const source: DynamicSource<SourceConfig> = { files: () => filesAt(at) };
+    const loader = dynamicLoader(source, {
+      baseUrl: options.baseUrl ?? '/',
+      plugins: options.loaderPlugins,
+    });
+    return {
+      from: at,
+      until: deadlineAt(at),
+      lastUsed: ++accessCounter,
+      value: loader.get(),
+    };
+  }
+
+  function getSource() {
+    const at = currentTime();
+    let generation = generations
+      .filter((candidate) => candidate.from <= at && at < candidate.until)
+      .reduce<Generation | undefined>(
+        (best, candidate) => !best || candidate.from > best.from ? candidate : best,
+        undefined,
+      );
+    if (!generation) {
+      generation = createGeneration(at);
+      generations.push(generation);
+      if (generations.length > maxCachedGenerations) {
+        const oldest = generations.reduce((a, b) => a.lastUsed < b.lastUsed ? a : b);
+        generations.splice(generations.indexOf(oldest), 1);
       }
+    } else {
+      generation.lastUsed = ++accessCounter;
     }
+    return generation.value;
   }
 
   return { getSource };
