@@ -8,6 +8,8 @@ import * as v from 'valibot';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import { compileContent, serializeCompiledContent } from '../src/compile.js';
 import { createFumadocsSource } from '../src/fumadocs.js';
+import { schedule } from '../src/schedule.js';
+import { definePlugin } from '../src/plugin.js';
 
 const dirs: string[] = [];
 
@@ -165,7 +167,8 @@ pnpm add lume-cms
 
   it('rejects invalid or offset-less dates', async () => {
     const cwd = await fixture({ 'content/date.md': '---\ntitle: Date\npublishDate: 2026-09-01\n---\nBody' });
-    await expect(compileContent({ cwd, write: false })).rejects.toThrow(/content\/date\.md: invalid publishDate/);
+    await expect(compileContent({ cwd, write: false, config: { plugins: [schedule()] } }))
+      .rejects.toThrow(/content\/date\.md: invalid publishDate/);
   });
 
   it('normalizes equivalent timezone instants and produces deterministic bytes', async () => {
@@ -173,9 +176,12 @@ pnpm add lume-cms
       'content/a.md': '---\ntitle: A\npublishDate: 2026-09-01T10:00:00+08:00\n---\nA',
       'content/b.md': '---\ntitle: B\npublishDate: 2026-09-01T02:00:00Z\n---\nB',
     });
-    const one = await compileContent({ cwd, write: false });
-    const two = await compileContent({ cwd, write: false });
-    expect(one.entries[0]?.publishAtMs).toBe(one.entries[1]?.publishAtMs);
+    const config = { plugins: [schedule()] };
+    const one = await compileContent({ cwd, write: false, config });
+    const two = await compileContent({ cwd, write: false, config });
+    expect((one.entries[0]?.ext.schedule as { publishAtMs: number }).publishAtMs)
+      .toBe((one.entries[1]?.ext.schedule as { publishAtMs: number }).publishAtMs);
+    expect(one.entries[0]?.data).not.toHaveProperty('publishDate');
     expect(serializeCompiledContent(one)).toBe(serializeCompiledContent(two));
     expect(serializeCompiledContent(one)).not.toContain(cwd);
   });
@@ -188,5 +194,32 @@ pnpm add lume-cms
     await compileContent({ cwd });
     const output = JSON.parse(await readFile(path.join(cwd, 'out.json'), 'utf8'));
     expect(output.entries[0].slug).toEqual(['page']);
+  });
+
+  it('runs compile hooks in registration order and isolates extension namespaces', async () => {
+    const cwd = await fixture({ 'content/page.md': '---\ntitle: Page\nsecret: hidden\n---\nBody' });
+    const calls: string[] = [];
+    const schema = v.looseObject({ secret: v.optional(v.string()) });
+    const makePlugin = (id: string) => definePlugin({
+      id,
+      frontmatter: { schema, keys: ['secret'] },
+      compile: {
+        setup: () => { calls.push(`setup:${id}`); },
+        entry: ({ frontmatter }: { frontmatter: Record<string, unknown> }) => {
+          calls.push(`entry:${id}`);
+          return { value: frontmatter.secret };
+        },
+        finalize: () => { calls.push(`finalize:${id}`); },
+      },
+    });
+    const result = await compileContent({
+      cwd,
+      write: false,
+      config: { plugins: [makePlugin('one'), makePlugin('two')] },
+    });
+
+    expect(calls).toEqual(['setup:one', 'setup:two', 'entry:one', 'entry:two', 'finalize:one', 'finalize:two']);
+    expect(result.entries[0]?.data).not.toHaveProperty('secret');
+    expect(result.entries[0]?.ext).toEqual({ one: { value: 'hidden' }, two: { value: 'hidden' } });
   });
 });

@@ -1,6 +1,7 @@
 import content from '../content.generated.json';
 import { createFumadocsSource, type CompiledContent } from 'lume-cms';
 import { lucideIconsPlugin } from 'fumadocs-core/source/lucide-icons';
+import { schedule } from 'lume-cms/schedule';
 import { docsContentRoute, docsImageRoute, docsRoute } from './shared';
 
 interface PageFrontmatter extends Record<string, unknown> {
@@ -12,7 +13,8 @@ interface PageFrontmatter extends Record<string, unknown> {
 
 export const { getSource } = createFumadocsSource(content as CompiledContent<PageFrontmatter>, {
   baseUrl: docsRoute,
-  plugins: [lucideIconsPlugin()],
+  plugins: [schedule()],
+  loaderPlugins: [lucideIconsPlugin()],
 });
 
 type Source = Awaited<ReturnType<typeof getSource>>;
