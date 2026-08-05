@@ -145,35 +145,22 @@ pnpm add lume-cms
     expect(result.entries[0]?.data.title).toBe('Standard');
   });
 
-  it('compiles starter metadata, structured search data, and a root index page', async () => {
+  it('compiles structured search data and a root index page', async () => {
     const cwd = await fixture({
       'content/docs/index.mdx': '---\ntitle: Home\n---\n# Searchable heading\nBody',
-      'content/docs/meta.json': JSON.stringify({ title: 'Docs', pages: ['index'] }),
     });
     const result = await compileContent({
       cwd,
       write: false,
-      config: { content: { root: 'content/docs', include: ['content/docs/**/*.mdx', 'content/docs/**/meta.json'] } },
+      config: { content: { root: 'content/docs', include: ['content/docs/**/*.mdx'] } },
     });
     expect(result.entries[0]).toMatchObject({ slug: [], path: 'index.mdx' });
     expect(result.entries[0]?.body.structuredData.headings[0]?.content).toBe('Searchable heading');
-    expect(result.metas).toEqual([{ path: 'meta.json', data: { title: 'Docs', pages: ['index'] } }]);
     const source = await createFumadocsSource(result).getSource();
     const page = source.getPages()[0];
     expect(typeof page?.data.body).toBe('function');
     expect(page?.data.structuredData).toBeDefined();
     expect(source.getPageTree()).toBeDefined();
-  });
-
-  it('rejects JSON content while retaining meta.json navigation', async () => {
-    const cwd = await fixture({
-      'content/page.json': JSON.stringify({ title: 'Page', body: 'Body' }),
-    });
-    await expect(compileContent({
-      cwd,
-      write: false,
-      config: { content: { include: ['content/**/*.json'] } },
-    })).rejects.toThrow('JSON content input is not supported; only meta.json is accepted');
   });
 
   it('rejects invalid or offset-less dates', async () => {

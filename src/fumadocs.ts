@@ -78,11 +78,6 @@ export function createFumadocsSource<Data extends Record<string, unknown>>(
               publishDate: entry.publishDate,
             } as LumePageData<Data>,
           })),
-        ...(content.metas ?? []).map((meta) => ({
-          type: 'meta' as const,
-          path: meta.path,
-          data: meta.data,
-        })),
       ];
     },
   };
