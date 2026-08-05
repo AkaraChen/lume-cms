@@ -32,7 +32,7 @@ export default defineConfig({
 });
 ```
 
-Each collection owns its root, globs, schema, public `baseUrl`, and optional plugin list. Top-level `plugins` are defaults for collections that omit `plugins`. A source file may belong to only one collection. The old `content` shape remains a one-minor compatibility path, compiles as a collection named `default`, and emits a deprecation warning. Schema-version 2 JSON must be rebuilt; the runtime intentionally does not guess a migration.
+Each collection owns its root, globs, schema, public `baseUrl`, and optional plugin list. Top-level `plugins` are defaults for collections that omit `plugins`. A source file may belong to only one collection. Omitting `collections` creates one collection named `default`. Schema-version 2 JSON must be rebuilt; the runtime intentionally does not guess a migration.
 
 With no schema override, lume-cms imports Fumadocs' locked `pageSchema` and `metaSchema` directly. The configuration accepts the Standard Schema interface, so Valibot 1.x, Zod 4, and other conforming implementations can replace them without an adapter. Plugin-owned fields such as `publishDate` stay out of public page data. Each collection persists its normalized `baseUrl`, so its reference validation and runtime Fumadocs loader cannot drift.
 
@@ -133,14 +133,14 @@ Every new build stores both text representations in `entry.body`:
 
 | Field | Meaning | Consumer |
 | --- | --- | --- |
-| `markdown` | original Markdown/MDX body after frontmatter removal | source-aware tooling and backwards-compatible `page.data.content` |
+| `markdown` | original Markdown/MDX body after frontmatter removal | source-aware tooling and `page.data.content` |
 | `processedMarkdown` | pure Markdown after the same remark transforms used for rendering | `llms-full.txt`, per-page Markdown, content negotiation, and EPUB/LLM integrations |
 
 The pure-Markdown degradation is intentionally non-executing and deterministic: ESM imports/exports and JavaScript expressions are removed; MDX/JSX wrapper tags and attributes are removed while their Markdown children are retained. A self-closing component with a literal `title` or `label` becomes plain text, or a Markdown link when it also has a literal `href`; other self-closing components disappear. Standard Markdown and GFM constructs such as headings, links, tables, lists, and fenced code remain. Component-specific rendering is not executed or guessed beyond that portable title/link fallback—authors who need richer text from a visual component should put it in the component's children.
 
 The loader exposes the two values as `page.data.content` (original) and `page.data.processedMarkdown` (export form). The example's shared `getLLMText()` uses `processedMarkdown`, so the full and per-page export routes cannot leak unexpanded JSX or imports.
 
-This intentionally duplicates body text in the JSON artifact. In the three-page example fixture it adds 542 bytes uncompressed and 48 bytes after Brotli (12,639 → 13,181 raw; 2,214 → 2,262 Brotli). Growth is linear and can approach one extra normalized body per page before compression; large-site sharding/lazy-loading thresholds remain KIT-626's benchmark decision rather than being mixed into this compatibility layer.
+This intentionally duplicates body text in the JSON artifact. In the three-page example fixture it adds 542 bytes uncompressed and 48 bytes after Brotli (12,639 → 13,181 raw; 2,214 → 2,262 Brotli). Growth is linear and can approach one extra normalized body per page before compression; large-site sharding/lazy-loading thresholds remain KIT-626's benchmark decision rather than being mixed into the export contract.
 
 For local editing, run `lume-cms build --watch`. The first build is clean; later builds reuse an in-memory cache keyed by source path and content plus the resolved content configuration, schema, compiler version, plugin implementation, and plugin `compile.cacheKey`. Add, change, rename, and delete events update the same deterministic output without restarting the process. Configuration and local plugin source changes are reloaded and invalidate affected cache entries. A failed rebuild reports the error, keeps the last successful output, and continues watching so the next edit can recover. Custom plugins whose behavior depends on closed-over options should expose a stable `compile.cacheKey` containing those options.
 
