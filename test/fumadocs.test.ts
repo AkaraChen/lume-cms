@@ -2,7 +2,13 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { describe, expect, it } from 'vitest';
 import type { Folder, Item, Node, Root } from 'fumadocs-core/page-tree';
 import { collection, createFumadocsSource, createFumadocsSources } from '../src/fumadocs.js';
-import { definePlugin, type PreviewContext } from '../src/plugin.js';
+import {
+  definePlugin,
+  type Next,
+  type PreviewContext,
+  type ResolvedEntry,
+  type RuntimeContext,
+} from '../src/plugin.js';
 import type { CompiledContent, CompiledEntry } from '../src/types.js';
 import { schedule } from '../src/schedule.js';
 
@@ -241,13 +247,13 @@ describe('createFumadocsSource', () => {
     const observed = definePlugin({
       id: 'observed',
       runtime: {
-        visible(_entry, context) {
+        resolve(_entry: ResolvedEntry, context: RuntimeContext, next: Next<void>) {
           previewContexts.push(context.preview);
-          return true;
+          next();
         },
-        deadline(_entries, { nowMs }) {
+        deadline(_entries: readonly ResolvedEntry[], { nowMs }: RuntimeContext, next: Next<number>) {
           deadlineCalls += 1;
-          return nowMs < 20 ? 20 : Infinity;
+          return Math.min(next(), nowMs < 20 ? 20 : Infinity);
         },
       },
     });
@@ -284,7 +290,12 @@ describe('createFumadocsSource', () => {
   it('does not bypass third-party visibility plugins that ignore preview context', async () => {
     const trustedOnly = definePlugin({
       id: 'trusted-only',
-      runtime: { visible: (candidate: CompiledEntry) => candidate.slug[0] !== 'hidden' },
+      runtime: {
+        resolve(candidate: ResolvedEntry, _context: RuntimeContext, next: Next<void>) {
+          next();
+          if (candidate.compiled.slug[0] === 'hidden') candidate.hide('trusted-only');
+        },
+      },
     });
     const factory = createFumadocsSource({
       schemaVersion: 3,
@@ -300,7 +311,7 @@ describe('createFumadocsSource', () => {
     expect(preview.getPage(['visible'])).toBeDefined();
   });
 
-  it('coalesces concurrent refreshes at the same publication boundary', async () => {
+  it('snapshots compiled entries once while coalescing generation refreshes', async () => {
     let now = 19;
     let entryReads = 0;
     const entries = [entry('scheduled', 20)];
@@ -315,13 +326,14 @@ describe('createFumadocsSource', () => {
       } },
     };
     const source = createFumadocsSource(content, { now: () => new Date(now), plugins: [schedule()] });
+    expect(entryReads).toBe(1);
     entryReads = 0;
 
     await Promise.all(Array.from({ length: 20 }, () => source.getSource()));
-    expect(entryReads).toBe(2);
+    expect(entryReads).toBe(0);
     now = 20;
     await Promise.all(Array.from({ length: 20 }, () => source.getSource()));
-    expect(entryReads).toBe(4);
+    expect(entryReads).toBe(0);
   });
 
   it('preserves the complete Fumadocs meta page-tree contract across a deadline', async () => {

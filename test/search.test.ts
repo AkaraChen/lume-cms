@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createFromSource, type AdvancedIndex } from 'fumadocs-core/search/server';
 import { createFumadocsSource } from '../src/fumadocs.js';
-import type { AnyLumePlugin } from '../src/plugin.js';
+import type { AnyLumePlugin, Next, ResolvedEntry, RuntimeContext } from '../src/plugin.js';
 import { schedule } from '../src/schedule.js';
 import type { CompiledContent, CompiledEntry } from '../src/types.js';
 
@@ -56,7 +56,10 @@ describe('dynamic Fumadocs search contract', () => {
     const expiry: AnyLumePlugin = {
       id: 'expiry',
       runtime: {
-        visible: (page) => (page.ext.expiry as { expired: boolean }).expired === false,
+        resolve(page: ResolvedEntry, _context: RuntimeContext, next: Next<void>) {
+          next();
+          if ((page.compiled.ext.expiry as { expired: boolean }).expired) page.hide('expired');
+        },
       },
     };
     const content = {

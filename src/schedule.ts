@@ -1,5 +1,11 @@
 import * as v from 'valibot';
-import { definePlugin, type LumePlugin } from './plugin.js';
+import {
+  definePlugin,
+  type LumePlugin,
+  type Next,
+  type ResolvedEntry,
+  type RuntimeContext,
+} from './plugin.js';
 
 const OFFSET_DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/;
 
@@ -44,18 +50,25 @@ export function schedule(options: ScheduleOptions = {}): SchedulePlugin {
       },
     },
     runtime: {
-      visible: (entry, { nowMs, preview }) => preview?.future === true
-        || extension(entry).publishAtMs === null
-        || extension(entry).publishAtMs! <= nowMs,
-      deadline: (entries, { nowMs }) => entries
-        .filter((entry) => !entry.draft)
-        .map((entry) => extension(entry).publishAtMs)
+      resolve(entry: ResolvedEntry, { nowMs }: RuntimeContext, next: Next<void>) {
+        next();
+        entry.patchData({ publishDate: extension(entry.compiled).publishDate });
+        const publishAtMs = extension(entry.compiled).publishAtMs;
+        if (publishAtMs !== null && nowMs < publishAtMs) entry.hide('future');
+      },
+      deadline: (entries: readonly ResolvedEntry[], { nowMs }: RuntimeContext, next: Next<number>) => entries
+        .filter((entry) => !entry.compiled.draft)
+        .map((entry) => extension(entry.compiled).publishAtMs)
         .filter((value): value is number => value !== null && value > nowMs)
-        .reduce((next, value) => Math.min(next, value), Infinity),
+        .reduce((earliest, value) => Math.min(earliest, value), next()),
       ...(options.sort === 'date-desc' && {
-        compare: (a, b) => (extension(b).publishAtMs ?? -Infinity) - (extension(a).publishAtMs ?? -Infinity),
+        list: (_entries: readonly ResolvedEntry[], _context: RuntimeContext, next: Next<ResolvedEntry[]>) => (
+          next().sort((a, b) => (
+            (extension(b.compiled).publishAtMs ?? -Infinity)
+            - (extension(a.compiled).publishAtMs ?? -Infinity)
+          ))
+        ),
       }),
-      pageData: (entry) => ({ publishDate: extension(entry).publishDate }),
     },
   });
 }

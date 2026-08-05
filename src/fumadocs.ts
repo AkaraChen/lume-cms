@@ -19,9 +19,11 @@ import * as runtime from 'react/jsx-runtime';
 import type { CompiledBody, CompiledCollection, CompiledContent, CompiledEntry } from './types.js';
 import {
   assertPluginIds,
+  composeOnion,
   type AnyLumePlugin,
   type InferPluginData,
   type PreviewOptions,
+  type ResolvedEntry,
   type RuntimeContext,
 } from './plugin.js';
 import { normalizeBaseUrl } from './url.js';
@@ -149,10 +151,32 @@ export function collection<
   return options;
 }
 
-/** The single visibility boundary. Every Fumadocs read path derives from its files. */
-function isVisible(entry: CompiledEntry, plugins: readonly AnyLumePlugin[], context: RuntimeContext): boolean {
-  return (!entry.draft || context.preview?.draft === true)
-    && plugins.every((plugin) => plugin.runtime?.visible?.(entry, context) !== false);
+type ResolvedState = ResolvedEntry & { dataPatch: Record<string, unknown> };
+
+function freezeCompiled(entry: CompiledEntry): Readonly<CompiledEntry> {
+  const clone = structuredClone(entry);
+  const freeze = (value: unknown): void => {
+    if (!value || typeof value !== 'object' || Object.isFrozen(value)) return;
+    for (const child of Object.values(value)) freeze(child);
+    Object.freeze(value);
+  };
+  freeze(clone);
+  return clone;
+}
+
+function resolvedEntry(compiled: CompiledEntry): ResolvedState {
+  const hidden = new Set<string>();
+  const state = new Map<string, unknown>();
+  const dataPatch: Record<string, unknown> = {};
+  return {
+    compiled,
+    hide: (reason) => hidden.add(reason),
+    hidden: () => [...hidden],
+    set: (key, value) => state.set(key, value),
+    get: <Value = unknown>(key: string) => state.get(key) as Value | undefined,
+    patchData: (patch) => Object.assign(dataPatch, patch),
+    dataPatch,
+  };
 }
 
 function bodyComponent(body: CompiledBody): BodyComponent {
@@ -206,6 +230,13 @@ function createCollectionSource<
   type Data = InferCollectionData<Collection>;
   const plugins = options.plugins ?? [] as unknown as Plugins;
   assertPluginMatch(compiled, plugins, name);
+  const compiledEntries = compiled.entries.map(freezeCompiled);
+  const hooks = plugins.map((plugin) => plugin.runtime ?? {});
+  for (const [index, hook] of hooks.entries()) {
+    if (hook.timeDependent && !hook.deadline) {
+      throw new TypeError(`Time-dependent lume-cms plugin ${JSON.stringify(plugins[index]!.id)} must provide a deadline hook`);
+    }
+  }
   if (options.pageTree && 'url' in options.pageTree) {
     throw new TypeError('pageTree.url is unsupported; use the top-level url option');
   }
@@ -226,7 +257,7 @@ function createCollectionSource<
     throw new TypeError(`Runtime i18n config does not match compiled i18n config for collection ${JSON.stringify(name)}`);
   }
   const i18n = compiledI18n as InferCollectionI18n<Collection, RuntimeI18n>;
-  const compiledSlugs = new Map(compiled.entries.map((entry) => [entry.path, entry.slug]));
+  const compiledSlugs = new Map(compiledEntries.map((entry) => [entry.path, entry.slug]));
   const loaderSlugs: LumeLoaderOptions<Data & InferPluginData<Plugins>>['slugs'] = options.slugs
     ? (file) => options.slugs?.(file) ?? compiledSlugs.get(file.path)
     : undefined;
@@ -236,53 +267,83 @@ function createCollectionSource<
     metaData: MetaData;
   };
 
-  function filesAt(context: RuntimeContext): ReturnType<DynamicSource<SourceConfig>['files']> {
+  const resolve = composeOnion(
+    hooks.flatMap((hook) => hook.resolve ? [hook.resolve] : []),
+    (entry: ResolvedEntry) => {
+      if (entry.compiled.draft) entry.hide('draft');
+    },
+  );
+  const list = composeOnion(
+    hooks.flatMap((hook) => hook.list ? [hook.list] : []),
+    (entries: readonly ResolvedEntry[], context: RuntimeContext) => {
+      const revealed = new Set(context.preview?.reveal ?? []);
+      if (context.preview?.draft) revealed.add('draft');
+      if (context.preview?.future) revealed.add('future');
+      if (context.preview?.expired) revealed.add('expired');
+      return entries
+        .filter((entry) => entry.hidden().every((reason) => revealed.has(reason)))
+        .slice()
+        .sort((a, b) => (
+          (a.compiled.locale ?? '').localeCompare(b.compiled.locale ?? '')
+          || a.compiled.slug.join('/').localeCompare(b.compiled.slug.join('/'))
+        ));
+    },
+  );
+  const deadline = composeOnion(
+    hooks.flatMap((hook) => hook.deadline ? [hook.deadline] : []),
+    () => Infinity,
+  );
+
+  function resolveAt(context: RuntimeContext) {
+    const entries = compiledEntries.map(resolvedEntry);
+    for (const entry of entries) resolve(entry, context);
+    const listed = list(entries, context);
+    if (!Array.isArray(listed)) throw new TypeError('lume-cms list middleware must return an entry array');
+    return { entries, listed: listed as ResolvedState[] };
+  }
+
+  function filesAt(listed: readonly ResolvedState[]): ReturnType<DynamicSource<SourceConfig>['files']> {
     return [
       ...(compiled.metas ?? []).map((meta) => ({
         type: 'meta' as const,
         path: meta.path,
         data: meta.data,
       })),
-      ...compiled.entries
-        .filter((entry) => isVisible(entry, plugins, context))
-        .sort((a, b) => {
-          for (const plugin of plugins) {
-            const result = plugin.runtime?.compare?.(a, b) ?? 0;
-            if (result !== 0) return result;
-          }
-          return (a.locale ?? '').localeCompare(b.locale ?? '')
-            || a.slug.join('/').localeCompare(b.slug.join('/'));
-        })
+      ...listed
         .map((entry) => {
+          const compiledEntry = entry.compiled;
           const data = {
-            ...entry.data,
-            title: typeof entry.data.title === 'string' ? entry.data.title : entry.slug.join('/') || 'index',
-            body: bodyComponent(entry.body),
-            content: entry.body.markdown,
-            processedMarkdown: entry.body.processedMarkdown ?? entry.body.markdown,
-            toc: entry.body.toc,
-            structuredData: entry.body.structuredData,
-            ...Object.assign({}, ...plugins.map((plugin) => plugin.runtime?.pageData?.(entry) ?? {})),
+            ...compiledEntry.data,
+            title: typeof compiledEntry.data.title === 'string'
+              ? compiledEntry.data.title
+              : compiledEntry.slug.join('/') || 'index',
+            body: bodyComponent(compiledEntry.body),
+            content: compiledEntry.body.markdown,
+            processedMarkdown: compiledEntry.body.processedMarkdown ?? compiledEntry.body.markdown,
+            toc: compiledEntry.body.toc,
+            structuredData: compiledEntry.body.structuredData,
+            ...entry.dataPatch,
           } as LumePageData<Data & InferPluginData<Plugins>>;
           return {
             type: 'page' as const,
-            path: entry.path,
-            ...(loaderSlugs ? {} : { slugs: entry.slug }),
+            path: compiledEntry.path,
+            ...(loaderSlugs ? {} : { slugs: compiledEntry.slug }),
             data,
           };
         }),
     ];
   }
 
-  function deadlineAt(at: number) {
-    return plugins.reduce(
-      (next, plugin) => Math.min(next, plugin.runtime?.deadline?.(compiled.entries, { nowMs: at }) ?? Infinity),
-      Infinity,
-    );
+  function deadlineAt(entries: readonly ResolvedEntry[], context: RuntimeContext) {
+    const value = deadline(entries, context);
+    if (typeof value !== 'number' || Number.isNaN(value)) {
+      throw new TypeError('lume-cms deadline middleware must return a number');
+    }
+    return value;
   }
 
-  function createLoader(context: RuntimeContext) {
-    const source: DynamicSource<SourceConfig> = { files: () => filesAt(context) };
+  function createLoader(entries: readonly ResolvedState[]) {
+    const source: DynamicSource<SourceConfig> = { files: () => filesAt(entries) };
     return dynamicLoader(source, {
       baseUrl,
       i18n,
@@ -308,10 +369,12 @@ function createCollectionSource<
   let accessCounter = 0;
 
   function createGeneration(at: number): Generation {
-    const loader = createLoader({ nowMs: at });
+    const context = { nowMs: at };
+    const resolved = resolveAt(context);
+    const loader = createLoader(resolved.listed);
     return {
       from: at,
-      until: deadlineAt(at),
+      until: deadlineAt(resolved.entries, context),
       lastUsed: ++accessCounter,
       value: loader.get(),
     };
@@ -345,7 +408,7 @@ function createCollectionSource<
       expired: previewOptions.expired === true,
       ...(previewOptions.reveal && { reveal: previewOptions.reveal }),
     };
-    return createLoader({ nowMs: currentTime(), preview }).get();
+    return createLoader(resolveAt({ nowMs: currentTime(), preview }).listed).get();
   }
 
   return { getSource, getPreviewSource } as unknown as FumadocsCollectionFactory<Collection, Plugins, RuntimeI18n>;

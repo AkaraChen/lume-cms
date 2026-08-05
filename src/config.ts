@@ -18,6 +18,7 @@ export type {
   PreviewContext,
   PreviewOptions,
   RuntimeContext,
+  RuntimeHooks,
   ResolvedEntry,
 } from './plugin.js';
 
