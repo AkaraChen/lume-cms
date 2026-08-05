@@ -176,4 +176,90 @@ export default { collections: { default: { include: ['a.md'] } }, plugins: [plug
     await vi.waitFor(() => expect(builds.length).toBeGreaterThan(previousBuilds));
     await watcher.close();
   });
+
+  it('preserves child coverage when an overlapping parent root is removed', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'lume-cms-watch-overlap-'));
+    dirs.push(root);
+    const cwd = path.join(root, 'site');
+    const shared = path.join(root, 'shared');
+    const child = path.join(shared, 'child');
+    await mkdir(path.join(cwd, 'content'), { recursive: true });
+    await mkdir(child, { recursive: true });
+    await writeFile(path.join(shared, 'parent.md'), '---\ntitle: Parent\n---\nParent');
+    await writeFile(path.join(child, 'page.md'), '---\ntitle: Child\n---\nChild');
+    await writeFile(path.join(cwd, 'content/local.md'), '---\ntitle: Local\n---\nLocal');
+    await writeFile(path.join(cwd, 'lume.config.ts'), `export default { collections: {
+  parent: { root: '../shared', include: ['parent.md'], baseUrl: '/parent' },
+  child: { root: '../shared/child', include: ['*.md'], baseUrl: '/child' },
+} };
+`);
+
+    const builds: WatchBuildResult[] = [];
+    const watcher = await watchContent({
+      cwd,
+      debounceMs: 10,
+      onBuild: (result) => { builds.push(result); },
+    });
+    expect(builds.at(-1)?.content.collections.child?.entries[0]?.data.title).toBe('Child');
+
+    let previousBuilds = builds.length;
+    await writeFile(path.join(cwd, 'lume.config.ts'), `export default { collections: {
+  child: { root: '../shared/child', include: ['*.md'], baseUrl: '/child' },
+} };
+`);
+    await vi.waitFor(() => {
+      expect(builds.slice(previousBuilds).some((result) => (
+        result.content.collections.child?.entries[0]?.data.title === 'Child'
+        && result.content.collections.parent === undefined
+      ))).toBe(true);
+    });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    previousBuilds = builds.length;
+    await writeFile(path.join(shared, 'parent.md'), '---\ntitle: Ignored parent\n---\nIgnored parent');
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(builds).toHaveLength(previousBuilds);
+
+    await writeFile(path.join(child, 'page.md'), '---\ntitle: Updated child\n---\nUpdated child');
+    await vi.waitFor(() => {
+      expect(builds.slice(previousBuilds).some((result) => (
+        result.content.collections.child?.entries[0]?.data.title === 'Updated child'
+      ))).toBe(true);
+    });
+
+    previousBuilds = builds.length;
+    await writeFile(path.join(cwd, 'lume.config.ts'), `export default { collections: {
+  local: { root: 'content', include: ['*.md'], baseUrl: '/local' },
+} };
+`);
+    await vi.waitFor(() => {
+      expect(builds.slice(previousBuilds).some((result) => (
+        result.content.collections.local?.entries[0]?.data.title === 'Local'
+      ))).toBe(true);
+    });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    previousBuilds = builds.length;
+    await writeFile(path.join(child, 'page.md'), '---\ntitle: Detached child\n---\nDetached child');
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(builds).toHaveLength(previousBuilds);
+
+    await writeFile(path.join(cwd, 'lume.config.ts'), `export default { collections: {
+  child: { root: '../shared/child', include: ['*.md'], baseUrl: '/child' },
+} };
+`);
+    await vi.waitFor(() => {
+      expect(builds.slice(previousBuilds).some((result) => (
+        result.content.collections.child?.entries[0]?.data.title === 'Detached child'
+      ))).toBe(true);
+    });
+    previousBuilds = builds.length;
+    await writeFile(path.join(child, 'page.md'), '---\ntitle: Reattached child\n---\nReattached child');
+    await vi.waitFor(() => {
+      expect(builds.slice(previousBuilds).some((result) => (
+        result.content.collections.child?.entries[0]?.data.title === 'Reattached child'
+      ))).toBe(true);
+    });
+    await watcher.close();
+  });
 });
