@@ -69,9 +69,7 @@ It invalidates at that boundary, so a long fallback TTL cannot hold a newly publ
 
 Version 1 recommends request-time rendering with `export const dynamic = 'force-dynamic'` for page details, lists, RSS, search, metadata/OG, and `llms.txt` routes. Keep `dynamicParams = true`; otherwise a slug absent from build-time params stays unreachable after publication. Every one of these consumers must call the same `getSource()`—never import `content.generated.json` in a client component or build a separate static search index.
 
-Sitemaps are metadata routes and static by default. Version 1 uses `export const dynamic = 'force-dynamic'` in `app/sitemap.ts`, matching every other consumer at the publication instant. `export const revalidate = 60` is the documented ISR alternative when a bounded delay is acceptable. The `examples/` directory shows page, list, navigation, RSS, search, OG, and sitemap wiring.
-
-ISR is supported as an explicit tradeoff: set `revalidate = N` on every consumer and accept up to `N` seconds of publication delay. A pre-publication `notFound()` may remain in Next.js's full route cache for that window. Do not wrap the source in `unstable_cache` or a permanent `fetch` cache. CDN `s-maxage` must likewise be no larger than the accepted delay. Tag invalidation driven by a scheduler is another valid option.
+Sitemaps are metadata routes and static by default, so `app/sitemap.ts` must also export `dynamic = 'force-dynamic'`. Page details, lists, RSS, search, metadata/OG, text exports, and sitemap all use request-time visibility; do not add a static route or an additional cache around the source. The `examples/` directory shows page, list, navigation, RSS, search, OG, and sitemap wiring.
 
 ## Preventing leaks
 
