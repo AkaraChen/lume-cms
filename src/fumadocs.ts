@@ -60,12 +60,21 @@ type LumeLoaderOutput<
   Collection extends CompiledCollection,
   Plugins extends readonly AnyLumePlugin[],
   RuntimeI18n extends I18nConfig | undefined,
-> = LoaderOutput<{
-  page: Page<undefined, LumePageData<InferCollectionData<Collection> & InferPluginData<Plugins>>>;
-  meta: Meta<undefined, MetaData>;
-  i18n: InferCollectionI18n<Collection, RuntimeI18n>;
-  source: undefined;
-}>;
+> = InferCollectionI18n<Collection, RuntimeI18n> extends infer I18n
+  ? I18n extends I18nConfig
+    ? LoaderOutput<{
+      page: Page<undefined, LumePageData<InferCollectionData<Collection> & InferPluginData<Plugins>>>;
+      meta: Meta<undefined, MetaData>;
+      i18n: I18n;
+      source: undefined;
+    }>
+    : LoaderOutput<{
+      page: Page<undefined, LumePageData<InferCollectionData<Collection> & InferPluginData<Plugins>>>;
+      meta: Meta<undefined, MetaData>;
+      i18n: undefined;
+      source: undefined;
+    }>
+  : never;
 
 export interface FumadocsCollectionFactory<
   Collection extends CompiledCollection,
