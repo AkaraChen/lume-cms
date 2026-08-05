@@ -54,10 +54,14 @@ describe('createContentSource', () => {
 
   it('does not expose the compiled container through returned entries', () => {
     const compiled = entry('page', null);
+    compiled.body.toc = [{ title: 'Heading', url: '#heading', depth: 1 }];
     const source = createContentSource(content([compiled]), { now: () => new Date(0) });
     const visible = source.getEntry('page')!;
     visible.data.title = 'changed';
+    visible.body.toc[0]!.title = 'changed';
+    visible.body.toc.push({ title: 'injected', url: '#injected', depth: 2 });
     expect(compiled.data.title).toBe('page');
+    expect(compiled.body.toc).toEqual([{ title: 'Heading', url: '#heading', depth: 1 }]);
     expect(visible).not.toHaveProperty('draft');
     expect(visible).not.toHaveProperty('publishAtMs');
   });

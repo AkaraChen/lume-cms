@@ -93,7 +93,7 @@ const answer = 42;
           return defaults;
         },
         rehypePlugins(defaults) {
-          composedRehype = defaults.length >= 2;
+          composedRehype = defaults.length >= 1;
           return defaults;
         },
       },
@@ -107,6 +107,60 @@ const answer = 42;
     expect(html).toContain('<a href="https://example.com">https://example.com</a>');
     expect(html).toContain('--shiki-light');
     expect(html).toContain('class="line"');
+  });
+
+  it('gives custom rehype plugins an extension point ahead of the TOC pass', async () => {
+    const cwd = await fixture({ 'content/page.mdx': '---\ntitle: Page\n---\n# Hello world' });
+    // A plugin appended after `rehypeToc` would rename the heading without moving
+    // the anchor, putting the table of contents back out of sync with the ids.
+    const renameHeadingIds = () => (tree: unknown) => {
+      const walk = (node: { tagName?: string; properties?: Record<string, unknown>; children?: unknown[] }) => {
+        if (node.tagName === 'h1' && node.properties) node.properties.id = 'custom-hello';
+        node.children?.forEach((child) => walk(child as typeof node));
+      };
+      walk(tree as { children?: unknown[] });
+    };
+
+    const result = await compileContent({ cwd, write: false, config: { rehypePlugins: [renameHeadingIds] } });
+    expect(result.entries[0]?.body.toc).toEqual([{ title: 'Hello world', url: '#custom-hello', depth: 1 }]);
+    expect(await renderBody(result)).toContain('id="custom-hello"');
+  });
+
+  it('keeps one addressable path per entry across object, array and custom-slug JSON', async () => {
+    const cwd = await fixture({
+      'content/single.json': JSON.stringify({ title: 'Single', body: '# Single' }),
+      'content/list.json': JSON.stringify([
+        { title: 'One', body: '# One' },
+        { title: 'Two', body: '# Two' },
+      ]),
+      'content/aliased.json': JSON.stringify([
+        { title: 'Alias A', slug: 'alias/a', body: '# A' },
+        { title: 'Alias B', slug: 'alias/b', body: '# B' },
+      ]),
+    });
+    const result = await compileContent({ cwd, write: false });
+
+    expect(result.entries.map((entry) => entry.id)).toEqual([
+      'alias/a', 'alias/b', 'list/1', 'list/2', 'single',
+    ]);
+    expect(result.entries.map((entry) => entry.path)).toEqual([
+      'aliased-1.json', 'aliased-2.json', 'list-1.json', 'list-2.json', 'single.json',
+    ]);
+
+    // Fumadocs stores files by path, so a shared path would silently drop pages.
+    const files = await createContentSource(result).toDynamicSource().files();
+    expect(new Set(files.map((file) => file.path)).size).toBe(files.length);
+    expect(files).toHaveLength(5);
+  });
+
+  it('fails the build when two entries would claim the same path', async () => {
+    // `list.json` numbers its items into `list-1.json`, which a real `list-1.json`
+    // also claims. The slugs differ, so only the path check can catch this.
+    const cwd = await fixture({
+      'content/list.json': JSON.stringify([{ title: 'One', body: '# One' }]),
+      'content/list-1.json': JSON.stringify({ title: 'Collides', body: '# Collides' }),
+    });
+    await expect(compileContent({ cwd, write: false })).rejects.toThrow('Duplicate content path: list-1.json');
   });
 
   it('uses an injected Valibot schema and reports the source path on failure', async () => {

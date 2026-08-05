@@ -73,25 +73,29 @@ function resolvePlugins(defaults: Pluggable[], configured?: PluginOption): Plugg
 /**
  * One pipeline for Markdown and MDX, matching the `fumadocs-mdx` default preset.
  * Headings ids, the table of contents and syntax highlighting all come from Fumadocs.
+ *
+ * `rehypeToc` always runs last so the table of contents observes the final tree —
+ * custom rehype plugins extend the pipeline before it, never after.
  */
 async function compileBody(source: string, config: LumeConfig): Promise<CompiledBody> {
-  const remarkPlugins = resolvePlugins(
-    [remarkGfm, [remarkHeading, { generateToc: false }], [remarkImage, { useImport: false }], remarkNpm],
-    config.remarkPlugins,
-  );
   const file = await compileMdx(source, {
     outputFormat: 'function-body',
     development: false,
-    remarkPlugins,
-    rehypePlugins: resolvePlugins([rehypeCode, [rehypeToc, { exportToc: { as: 'data' } }]], config.rehypePlugins),
+    remarkPlugins: resolvePlugins(
+      [remarkGfm, [remarkHeading, { generateToc: false }], [remarkImage, { useImport: false }], remarkNpm],
+      config.remarkPlugins,
+    ),
+    rehypePlugins: [
+      ...resolvePlugins([rehypeCode], config.rehypePlugins),
+      [rehypeToc, { exportToc: { as: 'data' } }],
+    ],
   });
   const toc = (file.data.rehypeToc ?? []).map((item) => ({
     title: textOf(item.title),
     url: item.url,
     depth: item.depth,
   }));
-  // `structure` runs synchronously, so it only takes the sync subset of the pipeline.
-  return { markdown: source, code: String(file), toc, structuredData: structure(source, [remarkGfm]) };
+  return { markdown: source, code: String(file), toc, structuredData: structure(source) };
 }
 
 function relativeSlug(sourcePath: string, root: string): string[] {
@@ -122,6 +126,15 @@ async function validate(schema: ContentSchema, value: unknown, sourcePath: strin
     throw new Error(`${sourcePath}: invalid ${kind}: ${result.issues.map((issue) => issue.message).join('; ')}`);
   }
   return result.value;
+}
+
+/** Fumadocs silently de-duplicates by these keys, so a collision must fail the build. */
+function assertUnique(values: string[], kind: string) {
+  const seen = new Set<string>();
+  for (const value of values) {
+    if (seen.has(value)) throw new Error(`Duplicate ${kind}: ${value}`);
+    seen.add(value);
+  }
 }
 
 function parseJson(raw: string, sourcePath: string): unknown {
@@ -187,7 +200,9 @@ export async function compileContent(options: CompileOptions = {}): Promise<Comp
       entries.push({
         id: slug.join('/') || 'index',
         slug,
-        path: contentPath,
+        // Fumadocs addresses files by `path`, so every entry needs its own.
+        // A JSON array yields several entries from one file: number them apart.
+        path: candidate.suffix ? contentPath.replace(/(\.[^./]+)$/, `-${candidate.suffix}$1`) : contentPath,
         ...parsePublishDate(data.publishDate, sourcePath, config.defaultTimezone),
         draft: data.draft === true,
         data,
@@ -197,8 +212,8 @@ export async function compileContent(options: CompileOptions = {}): Promise<Comp
   }
 
   entries.sort((a, b) => a.id.localeCompare(b.id));
-  const duplicate = entries.find((entry, index) => index > 0 && entry.id === entries[index - 1]?.id);
-  if (duplicate) throw new Error(`Duplicate content slug: ${duplicate.id}`);
+  assertUnique(entries.map((entry) => entry.id), 'content slug');
+  assertUnique(entries.map((entry) => entry.path), 'content path');
   metas.sort((a, b) => a.path.localeCompare(b.path));
 
   const content: CompiledContent = { schemaVersion: 1, entries, metas };

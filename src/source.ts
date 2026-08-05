@@ -49,7 +49,13 @@ function toPublic<Data extends Record<string, unknown>>({
   draft: _draft,
   ...entry
 }: CompiledEntry<Data>): PublicEntry<Data> {
-  return { ...entry, slug: [...entry.slug], data: { ...entry.data }, body: { ...entry.body } };
+  return {
+    ...entry,
+    slug: [...entry.slug],
+    data: { ...entry.data },
+    // Callers must not be able to write back into the compiled container.
+    body: { ...entry.body, toc: entry.body.toc.map((item) => ({ ...item })) },
+  };
 }
 
 export function createContentSource<Data extends Record<string, unknown>>(
