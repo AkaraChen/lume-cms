@@ -20,5 +20,4 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
       - run: pnpm --filter lume-cms-example build
-      - run: pnpm --dir examples exec node ../scripts/scan-client-bundle.mjs UNPUBLISHED_TITLE_KIT_614 UNPUBLISHED_BODY_SENTINEL_KIT_614
-      - run: npm pack --dry-run
+      - run: pnpm --dir examples exec lume-cms scan-client . UNPUBLISHED_TITLE_KIT_614 UNPUBLISHED_BODY_SENTINEL_KIT_614

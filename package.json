@@ -9,19 +9,34 @@
     "lume-cms": "./dist/cli.mjs"
   },
   "exports": {
-    ".": "./dist/index.mjs",
-    "./compile": "./dist/compile.mjs",
-    "./config": "./dist/config.mjs",
-    "./fumadocs": "./dist/fumadocs.mjs",
-    "./unsafe": "./dist/unsafe.mjs"
+    ".": {
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
+    },
+    "./compile": {
+      "types": "./dist/compile.d.mts",
+      "import": "./dist/compile.mjs"
+    },
+    "./config": {
+      "types": "./dist/config.d.mts",
+      "import": "./dist/config.mjs"
+    },
+    "./fumadocs": {
+      "types": "./dist/fumadocs.d.mts",
+      "import": "./dist/fumadocs.mjs"
+    },
+    "./unsafe": {
+      "types": "./dist/unsafe.d.mts",
+      "import": "./dist/unsafe.mjs"
+    }
   },
   "scripts": {
     "build": "tsdown",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "scan:client": "node scripts/scan-client-bundle.mjs",
-    "check": "pnpm typecheck && pnpm test && pnpm build"
+    "test:package": "node scripts/verify-package.mjs",
+    "check": "pnpm typecheck && pnpm test && pnpm build && pnpm test:package"
   },
   "dependencies": {
     "@mdx-js/mdx": "^3.1.1",

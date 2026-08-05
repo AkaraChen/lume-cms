@@ -9,5 +9,13 @@ import type { CompiledContent, CompiledEntry } from './types.js';
 export function unsafe_getAllEntriesIncludingUnpublished(
   content: CompiledContent,
 ): readonly CompiledEntry[] {
-  return content.entries;
+  return deepFreeze(structuredClone(content.entries));
+}
+
+function deepFreeze<T>(value: T): T {
+  if (value && typeof value === 'object' && !Object.isFrozen(value)) {
+    for (const child of Object.values(value)) deepFreeze(child);
+    Object.freeze(value);
+  }
+  return value;
 }

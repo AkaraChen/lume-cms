@@ -29,7 +29,7 @@ export default defineConfig({
 });
 ```
 
-Markdown and MDX use YAML frontmatter. JSON may be one object or an array of objects; its optional `body` field is Markdown. MDX is compiled with the standard `@mdx-js/mdx` compiler to a deterministic function body stored in JSON, while Markdown is compiled to HTML. Run `lume-cms build` to generate stable JSON. Entries and object keys are sorted, paths are relative, line endings are stable, and no timestamp or machine path is emitted.
+Markdown and MDX use YAML frontmatter. JSON may be one object or an array of objects; its optional `body` field is Markdown. MDX is compiled with the standard `@mdx-js/mdx` compiler to a deterministic function body stored in JSON, while Markdown is compiled to HTML. Raw HTML in Markdown is deliberately discarded; do not enable `allowDangerousHtml`/`rehype-raw` without adding an explicit sanitization policy. Run `lume-cms build` to generate stable JSON. Entries and object keys are sorted, paths are relative, line endings are stable, and no timestamp or machine path is emitted.
 
 Render a compiled MDX page on the server with the Fumadocs entry point:
 
@@ -69,7 +69,7 @@ It invalidates at that boundary, so a long fallback TTL cannot hold a newly publ
 
 Version 1 recommends request-time rendering with `export const dynamic = 'force-dynamic'` for page details, lists, RSS, search, metadata/OG, and `llms.txt` routes. Keep `dynamicParams = true`; otherwise a slug absent from build-time params stays unreachable after publication. Every one of these consumers must call the same `getSource()`—never import `content.generated.json` in a client component or build a separate static search index.
 
-Sitemaps are metadata routes and static by default. Set `export const revalidate = 60` in `app/sitemap.ts`, or implement it as a force-dynamic route handler. The `examples/` directory shows page, list, RSS, and sitemap wiring.
+Sitemaps are metadata routes and static by default. Version 1 uses `export const dynamic = 'force-dynamic'` in `app/sitemap.ts`, matching every other consumer at the publication instant. `export const revalidate = 60` is the documented ISR alternative when a bounded delay is acceptable. The `examples/` directory shows page, list, navigation, RSS, search, OG, and sitemap wiring.
 
 ISR is supported as an explicit tradeoff: set `revalidate = N` on every consumer and accept up to `N` seconds of publication delay. A pre-publication `notFound()` may remain in Next.js's full route cache for that window. Do not wrap the source in `unstable_cache` or a permanent `fetch` cache. CDN `s-maxage` must likewise be no larger than the accepted delay. Tag invalidation driven by a scheduler is another valid option.
 
@@ -78,11 +78,11 @@ ISR is supported as an explicit tradeoff: set `revalidate = N` on every consumer
 The runtime entry points import `server-only`. Keep the JSON and any module that imports it behind the server boundary. After building an example Next.js app, scan client assets using distinctive unpublished title/body markers:
 
 ```sh
-pnpm scan:client -- "UNPUBLISHED_TITLE" "UNPUBLISHED_BODY_SENTINEL"
+lume-cms scan-client ./path/to/next-app "UNPUBLISHED_TITLE" "UNPUBLISHED_BODY_SENTINEL"
 ```
 
-Run this in CI for the consuming app. Also derive RSS, sitemap, search, navigation, metadata/OG, and text-export routes from `getSource()`; these are independent leak paths.
+The command is shipped in the package and fails if the app's `.next/static` contains zero files, preventing a wrong-directory scan from reporting a false success. Run it after `next build` in the consuming app's CI. Also derive RSS, sitemap, search, navigation, metadata/OG, and text-export routes from `getSource()`; these are independent leak paths.
 
-The `/unsafe` export contains `unsafe_getAllEntriesIncludingUnpublished()` only for authenticated server-side previews. The main entry does not re-export it.
+The `/unsafe` export contains `unsafe_getAllEntriesIncludingUnpublished()` only for authenticated server-side previews. It returns a detached, deeply frozen snapshot so preview code cannot mutate the live source. The main entry does not re-export it.
 
 Important: future bodies are plaintext in `content.generated.json` and therefore in Git history when that file is committed. This is accepted for the private v1 repository, but a public repository provides no confidentiality even if the website filters entries correctly. Do not commit sensitive future material to a public repository.

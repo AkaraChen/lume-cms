@@ -38,13 +38,32 @@ export function createFumadocsSource<Data extends Record<string, unknown>>(
     baseUrl: options.baseUrl ?? '/',
   });
   let validUntil = -Infinity;
+  let revision = 0;
+  let refreshPromise: ReturnType<typeof loader.get> | undefined;
 
   async function getSource() {
-    const nowMs = now().getTime();
-    if (nowMs >= validUntil) loader.invalidate();
+    while (true) {
+      const nowMs = now().getTime();
+      if (nowMs < validUntil) return loader.get();
+
+      const active = refreshPromise ??= refresh(revision);
+      try {
+        const source = await active;
+        if (now().getTime() < validUntil) return source;
+      } finally {
+        if (refreshPromise === active) refreshPromise = undefined;
+      }
+    }
+  }
+
+  async function refresh(startRevision: number) {
+    loader.invalidate();
     const source = await loader.get();
-    const transition = contentSource.nextTransitionAt() ?? Infinity;
-    validUntil = Math.min(transition, nowMs + maxStaleMs);
+    if (revision === startRevision) {
+      const refreshedAt = now().getTime();
+      const transition = contentSource.nextTransitionAt() ?? Infinity;
+      validUntil = Math.min(transition, refreshedAt + maxStaleMs);
+    }
     return source;
   }
 
@@ -52,6 +71,7 @@ export function createFumadocsSource<Data extends Record<string, unknown>>(
     getSource,
     contentSource,
     invalidate() {
+      revision += 1;
       validUntil = -Infinity;
       loader.invalidate();
     },

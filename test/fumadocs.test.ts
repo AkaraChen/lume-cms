@@ -2,6 +2,33 @@ import { describe, expect, it } from 'vitest';
 import { createFumadocsSource } from '../src/fumadocs.js';
 import type { CompiledContent } from '../src/types.js';
 
+function entry(id: string, publishAtMs: number | null, draft = false) {
+  return {
+    id,
+    slug: [id],
+    sourcePath: `content/${id}.md`,
+    publishDate: publishAtMs === null ? null : new Date(publishAtMs).toISOString(),
+    publishAtMs,
+    draft,
+    data: { title: id },
+    body: { format: 'markdown' as const, markdown: id, html: `<p>${id}</p>`, toc: [] },
+  };
+}
+
+function sixConsumerSets(source: Awaited<ReturnType<ReturnType<typeof createFumadocsSource>['getSource']>>) {
+  const candidates = ['published', 'scheduled', 'draft'];
+  const direct = () => candidates.filter((slug) => source.getPage([slug])).sort();
+  const enumerated = () => source.getPages().map((page) => page.slugs.join('/')).sort();
+  return {
+    detail: direct(),
+    list: enumerated(),
+    rss: enumerated(),
+    sitemap: enumerated(),
+    search: enumerated(),
+    og: direct(),
+  };
+}
+
 describe('createFumadocsSource', () => {
   it('invalidates at the publication deadline even with a long maxStaleMs', async () => {
     let now = 999;
@@ -22,5 +49,40 @@ describe('createFumadocsSource', () => {
     expect((await source.getSource()).getPages()).toHaveLength(0);
     now = 1_000;
     expect((await source.getSource()).getPage(['scheduled'])?.data.title).toBe('Scheduled');
+  });
+
+  it('keeps the visible slug set identical across all six consumer paths', async () => {
+    let now = 19;
+    const source = createFumadocsSource({
+      schemaVersion: 1,
+      entries: [entry('published', 10), entry('scheduled', 20), entry('draft', null, true)],
+    }, { now: () => new Date(now), maxStaleMs: 86_400_000 });
+
+    expect(Object.values(sixConsumerSets(await source.getSource())))
+      .toEqual(Array(6).fill(['published']));
+    now = 20;
+    expect(Object.values(sixConsumerSets(await source.getSource())))
+      .toEqual(Array(6).fill(['published', 'scheduled']));
+  });
+
+  it('coalesces concurrent refreshes at the same publication boundary', async () => {
+    let now = 19;
+    let entryReads = 0;
+    const entries = [entry('scheduled', 20)];
+    const content: CompiledContent = {
+      schemaVersion: 1,
+      get entries() {
+        entryReads += 1;
+        return entries;
+      },
+    };
+    const source = createFumadocsSource(content, { now: () => new Date(now), maxStaleMs: 86_400_000 });
+    entryReads = 0;
+
+    await Promise.all(Array.from({ length: 20 }, () => source.getSource()));
+    expect(entryReads).toBe(2);
+    now = 20;
+    await Promise.all(Array.from({ length: 20 }, () => source.getSource()));
+    expect(entryReads).toBe(4);
   });
 });
