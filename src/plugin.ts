@@ -86,6 +86,25 @@ export function composeOnion<Arguments extends unknown[], Result>(
   };
 }
 
+export interface RuntimeHooks {
+  /** Mark or decorate one generation-scoped entry. */
+  resolve?(entry: ResolvedEntry, context: RuntimeContext, next: Next<void>): void;
+  /** Filter or reorder the shared entry list. */
+  list?(
+    entries: readonly ResolvedEntry[],
+    context: RuntimeContext,
+    next: Next<ResolvedEntry[]>,
+  ): ResolvedEntry[];
+  /** Return the first instant after `nowMs` at which this generation is stale. */
+  deadline?(
+    entries: readonly ResolvedEntry[],
+    context: RuntimeContext,
+    next: Next<number>,
+  ): number;
+  /** Requires `deadline` so request-time visibility cannot become permanently stale. */
+  timeDependent?: boolean;
+}
+
 export interface LumePlugin<Frontmatter extends object = object, Data extends object = object> {
   id: string;
   frontmatter?: {
@@ -100,23 +119,7 @@ export interface LumePlugin<Frontmatter extends object = object, Data extends ob
     /** @deprecated Use `collection`. */
     finalize?(entries: CompiledEntry[], context: PluginContext): void | Promise<void>;
   };
-  runtime?: {
-    resolve?(entry: ResolvedEntry, context: RuntimeContext, next: Next<void>): void;
-    list?(
-      entries: readonly ResolvedEntry[],
-      context: RuntimeContext,
-      next: Next<ResolvedEntry[]>,
-    ): ResolvedEntry[];
-    timeDependent?: boolean;
-    /** @deprecated Use `resolve` and `entry.hide()`. */
-    visible?(entry: CompiledEntry, context: RuntimeContext): boolean;
-    /** The next runtime boundary. Time-dependent plugins must implement this hook. */
-    deadline?(entries: readonly CompiledEntry[], context: RuntimeContext): number;
-    /** @deprecated Use `list`. */
-    compare?(a: CompiledEntry, b: CompiledEntry): number;
-    /** @deprecated Use `resolve` and `entry.patchData()`. */
-    pageData?(entry: CompiledEntry): Record<string, unknown>;
-  };
+  runtime?: RuntimeHooks;
   /** Type-only carrier; plugin implementations must not set this at runtime. */
   readonly $Infer?: { frontmatter: Frontmatter; data: Data };
 }

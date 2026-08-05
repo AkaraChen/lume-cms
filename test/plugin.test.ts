@@ -1,6 +1,12 @@
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import { collection, createFumadocsSource, createFumadocsSources } from '../src/fumadocs.js';
-import { composeOnion, definePlugin } from '../src/plugin.js';
+import {
+  composeOnion,
+  definePlugin,
+  type Next,
+  type ResolvedEntry,
+  type RuntimeContext,
+} from '../src/plugin.js';
 import { schedule } from '../src/schedule.js';
 import type { CompiledContent, CompiledEntry } from '../src/types.js';
 
@@ -42,6 +48,122 @@ describe('plugin runtime', () => {
     expect(() => createFumadocsSource(content(), { plugins: [schedule()] })).toThrow(/Runtime plugin "schedule"/);
   });
 
+  it('runs resolve, list, and deadline as outside-in middleware around shared cores', async () => {
+    const events: string[] = [];
+    const middleware = (id: string) => definePlugin({
+      id,
+      runtime: {
+        resolve(entry: ResolvedEntry, context: RuntimeContext, next: Next<void>) {
+          events.push(`${id}:resolve:before`);
+          next();
+          events.push(`${id}:resolve:after`);
+        },
+        list(entries: readonly ResolvedEntry[], context: RuntimeContext, next: Next<ResolvedEntry[]>) {
+          events.push(`${id}:list:before`);
+          const result = next();
+          events.push(`${id}:list:after`);
+          return result;
+        },
+        deadline(entries: readonly ResolvedEntry[], context: RuntimeContext, next: Next<number>) {
+          events.push(`${id}:deadline:before`);
+          const result = next();
+          events.push(`${id}:deadline:after`);
+          return result;
+        },
+      },
+    });
+    const entry = {
+      slug: ['page'], path: 'page.md', draft: false, data: { title: 'Page' }, ext: {}, body,
+    };
+    await createFumadocsSource(content(['a', 'b'], [entry]), {
+      plugins: [middleware('a'), middleware('b')],
+    }).getSource();
+    expect(events).toEqual([
+      'a:resolve:before', 'b:resolve:before', 'b:resolve:after', 'a:resolve:after',
+      'a:list:before', 'b:list:before', 'b:list:after', 'a:list:after',
+      'a:deadline:before', 'b:deadline:before', 'b:deadline:after', 'a:deadline:after',
+    ]);
+  });
+
+  it('shares hide reasons across all reads and only reveals every requested reason', async () => {
+    const marker = definePlugin({
+      id: 'marker',
+      runtime: {
+        resolve(entry: ResolvedEntry, _context: RuntimeContext, next: Next<void>) {
+          next();
+          entry.hide('one');
+          entry.hide('two');
+          entry.set('private', true);
+          expect(entry.get('private')).toBe(true);
+        },
+      },
+    });
+    const source = createFumadocsSource(content(['marker'], [{
+      slug: ['hidden'], path: 'hidden.md', draft: false, data: { title: 'Hidden' }, ext: {}, body,
+    }]), { plugins: [marker] });
+    expect((await source.getSource()).getPages()).toHaveLength(0);
+    expect((await source.getPreviewSource({ reveal: ['one'] })).getPages()).toHaveLength(0);
+    expect((await source.getPreviewSource({ reveal: ['one', 'two'] })).getPages()).toHaveLength(1);
+  });
+
+  it('isolates runtime state per generation and protects the compiled artifact', async () => {
+    let now = 10;
+    let resolutions = 0;
+    const compiledSnapshots: Readonly<CompiledEntry>[] = [];
+    const original = {
+      slug: ['page'], path: 'page.md', draft: false, data: { title: 'Original' }, ext: {}, body,
+    };
+    const gate = definePlugin({
+      id: 'gate',
+      runtime: {
+        timeDependent: true,
+        resolve(entry: ResolvedEntry, { nowMs }: RuntimeContext, next: Next<void>) {
+          compiledSnapshots.push(entry.compiled);
+          expect(entry.get('seen')).toBeUndefined();
+          entry.set('seen', true);
+          resolutions += 1;
+          expect(() => {
+            (entry.compiled.data as Record<string, unknown>).title = 'Mutated';
+          }).toThrow();
+          next();
+          if (nowMs < 20) entry.hide('future');
+        },
+        deadline(_entries: readonly ResolvedEntry[], { nowMs }: RuntimeContext, next: Next<number>) {
+          return Math.min(next(), nowMs < 20 ? 20 : Infinity);
+        },
+      },
+    });
+    const source = createFumadocsSource(content(['gate'], [original]), {
+      now: () => new Date(now), plugins: [gate],
+    });
+    expect((await source.getSource()).getPages()).toHaveLength(0);
+    now = 20;
+    expect((await source.getSource()).getPages()).toHaveLength(1);
+    expect(resolutions).toBe(2);
+    expect(compiledSnapshots[1]).toBe(compiledSnapshots[0]);
+    expect(original.data.title).toBe('Original');
+  });
+
+  it('rejects incomplete time-dependent and invalid list middleware', () => {
+    const entry = {
+      slug: ['page'], path: 'page.md', draft: false, data: { title: 'Page' }, ext: {}, body,
+    };
+    const incomplete = definePlugin({ id: 'incomplete', runtime: { timeDependent: true } });
+    expect(() => createFumadocsSource(content(['incomplete'], [entry]), { plugins: [incomplete] }))
+      .toThrow(/must provide a deadline/);
+
+    const invalid = definePlugin({
+      id: 'invalid',
+      runtime: {
+        list(_entries: readonly ResolvedEntry[], _context: RuntimeContext, _next: Next<ResolvedEntry[]>) {
+          return undefined as never;
+        },
+      },
+    });
+    const source = createFumadocsSource(content(['invalid'], [entry]), { plugins: [invalid] });
+    expect(() => source.getSource()).toThrow(/must return an entry array/);
+  });
+
   it('rejects duplicate ids', () => {
     expect(() => createFumadocsSource(content(['schedule', 'schedule']), {
       plugins: [schedule(), schedule()],
@@ -55,11 +177,19 @@ describe('plugin runtime', () => {
       .toThrow(/schema version 2; rebuild content/);
   });
 
-  it('combines visibility with AND and falls back to slug ordering', async () => {
-    const first = definePlugin({ id: 'first', runtime: { visible: () => true, compare: () => 0 } });
+  it('combines hide reasons with AND and falls back to slug ordering', async () => {
+    const first = definePlugin({
+      id: 'first',
+      runtime: { resolve: (_entry: ResolvedEntry, _context: RuntimeContext, next: Next<void>) => next() },
+    });
     const second = definePlugin({
       id: 'second',
-      runtime: { visible: (entry: CompiledEntry) => entry.slug[0] !== 'hidden', compare: () => 0 },
+      runtime: {
+        resolve(entry: ResolvedEntry, _context: RuntimeContext, next: Next<void>) {
+          next();
+          if (entry.compiled.slug[0] === 'hidden') entry.hide('second');
+        },
+      },
     });
     const entries = ['z', 'hidden', 'a'].map((id) => ({
       slug: [id], path: `${id}.md`, draft: false, data: { title: id }, ext: {}, body,
