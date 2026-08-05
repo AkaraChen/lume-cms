@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createFumadocsSource } from '../src/fumadocs.js';
+import { collection, createFumadocsSource, createFumadocsSources } from '../src/fumadocs.js';
 import type { CompiledContent } from '../src/types.js';
 import { schedule } from '../src/schedule.js';
 
@@ -14,8 +14,10 @@ function entry(id: string, publishAtMs: number | null, draft = false) {
   };
 }
 
-function starterConsumerSets(source: Awaited<ReturnType<ReturnType<typeof createFumadocsSource>['getSource']>>) {
-  const candidates = ['published', 'scheduled', 'draft'];
+function starterConsumerSets(
+  source: Awaited<ReturnType<ReturnType<typeof createFumadocsSource>['getSource']>>,
+  candidates = ['published', 'scheduled', 'draft'],
+) {
   const direct = () => candidates.filter((slug) => source.getPage([slug])).sort();
   const enumerated = () => source.getPages().map((page) => page.slugs.join('/')).sort();
   const tree = JSON.stringify(source.getPageTree());
@@ -31,19 +33,65 @@ function starterConsumerSets(source: Awaited<ReturnType<ReturnType<typeof create
 }
 
 describe('createFumadocsSource', () => {
+  it('creates isolated sources and a visibility-safe union across collections', async () => {
+    let now = 19;
+    const result = createFumadocsSources({
+      schemaVersion: 3,
+      collections: {
+        docs: { plugins: ['schedule'], entries: [entry('shared', 10), entry('docs-later', 20)] },
+        blog: { plugins: ['schedule'], entries: [entry('shared', 10), entry('blog-later', 30)] },
+      },
+    }, {
+      now: () => new Date(now),
+      collections: {
+        docs: collection({ baseUrl: '/docs', plugins: [schedule()] }),
+        blog: collection({ baseUrl: '/blog', plugins: [schedule()] }),
+      },
+    });
+
+    expect((await result.sources.docs.getSource()).getPages().map((page) => page.url)).toEqual(['/docs/shared']);
+    expect((await result.sources.blog.getSource()).getPages().map((page) => page.url)).toEqual(['/blog/shared']);
+    const docsBefore = await result.sources.docs.getSource();
+    const blogBefore = await result.sources.blog.getSource();
+    expect(Object.values(starterConsumerSets(docsBefore, ['shared', 'docs-later']))).toEqual(Array(7).fill(['shared']));
+    expect(Object.values(starterConsumerSets(blogBefore, ['shared', 'blog-later']))).toEqual(Array(7).fill(['shared']));
+    expect((await result.getAllPages()).map((page) => page.url).sort()).toEqual(['/blog/shared', '/docs/shared']);
+    now = 20;
+    const docsAfter = await result.sources.docs.getSource();
+    const blogAfter = await result.sources.blog.getSource();
+    expect(Object.values(starterConsumerSets(docsAfter, ['shared', 'docs-later']))).toEqual(Array(7).fill(['docs-later', 'shared']));
+    expect(Object.values(starterConsumerSets(blogAfter, ['shared', 'blog-later']))).toEqual(Array(7).fill(['shared']));
+    expect((await result.getAllPages()).map((page) => page.url).sort()).toEqual(['/blog/shared', '/docs/docs-later', '/docs/shared']);
+  });
+
+  it('fails fast for mismatched collection sets, duplicate base URLs, and plural use of the singular API', () => {
+    const content: CompiledContent = {
+      schemaVersion: 3,
+      collections: {
+        docs: { plugins: [], entries: [] },
+        blog: { plugins: [], entries: [] },
+      },
+    };
+    expect(() => createFumadocsSources(content, { collections: { docs: collection({}) } }))
+      .toThrow(/must match exactly/);
+    expect(() => createFumadocsSources(content, {
+      collections: { docs: collection({ baseUrl: '/same' }), blog: collection({ baseUrl: '/same' }) },
+    })).toThrow(/same baseUrl/);
+    expect(() => createFumadocsSource(content)).toThrow(/exactly one compiled collection/);
+  });
+
   it('invalidates exactly at the publication deadline', async () => {
     let now = 999;
     const content: CompiledContent = {
-      schemaVersion: 2,
-      plugins: ['schedule'],
-      entries: [{
+      schemaVersion: 3,
+      collections: { default: { plugins: ['schedule'], entries: [{
         slug: ['scheduled'],
         path: 'scheduled.md',
         draft: false,
         data: { title: 'Scheduled' },
         ext: { schedule: { publishDate: '1970-01-01T00:00:01Z', publishAtMs: 1_000 } },
         body: { markdown: 'secret', code: '', toc: [], structuredData: { headings: [], contents: [] } },
-      }],
+      }] } },
     };
     const source = createFumadocsSource(content, { now: () => new Date(now), plugins: [schedule()] });
     expect((await source.getSource()).getPages()).toHaveLength(0);
@@ -54,9 +102,11 @@ describe('createFumadocsSource', () => {
   it('keeps the visible slug set identical across all seven starter paths plus RSS and sitemap', async () => {
     let now = 19;
     const source = createFumadocsSource({
-      schemaVersion: 2,
-      plugins: ['schedule'],
-      entries: [entry('published', 10), entry('scheduled', 20), entry('draft', null, true)],
+      schemaVersion: 3,
+      collections: { default: {
+        plugins: ['schedule'],
+        entries: [entry('published', 10), entry('scheduled', 20), entry('draft', null, true)],
+      } },
     }, { now: () => new Date(now), plugins: [schedule()] });
 
     const before = await source.getSource();
@@ -73,12 +123,14 @@ describe('createFumadocsSource', () => {
     let entryReads = 0;
     const entries = [entry('scheduled', 20)];
     const content: CompiledContent = {
-      schemaVersion: 2,
-      plugins: ['schedule'],
-      get entries() {
-        entryReads += 1;
-        return entries;
-      },
+      schemaVersion: 3,
+      collections: { default: {
+        plugins: ['schedule'],
+        get entries() {
+          entryReads += 1;
+          return entries;
+        },
+      } },
     };
     const source = createFumadocsSource(content, { now: () => new Date(now), plugins: [schedule()] });
     entryReads = 0;

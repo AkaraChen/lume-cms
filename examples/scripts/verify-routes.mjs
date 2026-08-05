@@ -2,7 +2,12 @@ import { spawn } from 'node:child_process';
 
 const port = 31_000 + Math.floor(Math.random() * 1_000);
 const origin = `http://127.0.0.1:${port}`;
-const markers = ['UNPUBLISHED_TITLE_KIT_614', 'UNPUBLISHED_BODY_SENTINEL_KIT_614'];
+const markers = [
+  'UNPUBLISHED_TITLE_KIT_614',
+  'UNPUBLISHED_BODY_SENTINEL_KIT_614',
+  'UNPUBLISHED_BLOG_TITLE_KIT_618',
+  'UNPUBLISHED_BLOG_BODY_SENTINEL_KIT_618',
+];
 const server = spawn('pnpm', ['exec', 'next', 'start', '--port', String(port)], {
   cwd: new URL('..', import.meta.url),
   stdio: ['ignore', 'pipe', 'pipe'],
@@ -37,6 +42,7 @@ try {
 
   const publicRoutes = [
     '/docs',
+    '/blog',
     '/api/search?query=UNPUBLISHED_TITLE_KIT_614',
     '/llms.txt',
     '/llms-full.txt',
@@ -50,6 +56,7 @@ try {
 
   const hiddenRoutes = [
     ['/docs/scheduled'],
+    ['/blog/scheduled'],
     ['/llms.mdx/docs/scheduled/content.md'],
     ['/docs/scheduled', { headers: { Accept: 'text/markdown' } }],
     ['/og/docs/scheduled/image.png'],

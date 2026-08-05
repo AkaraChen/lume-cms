@@ -18,15 +18,22 @@ export const defaultFrontmatterSchema = v.looseObject({
 
 export type ContentSchema = StandardSchemaV1<unknown, Record<string, unknown>>;
 
+export interface CollectionConfig {
+  include?: string[];
+  exclude?: string[];
+  root?: string;
+  /** Any Standard Schema implementation, including Valibot 1 and Zod 4. */
+  schema?: ContentSchema;
+  /** Overrides the top-level plugin defaults for this collection. */
+  plugins?: readonly AnyLumePlugin[];
+}
+
 export interface LumeConfig {
-  content?: {
-    include?: string[];
-    exclude?: string[];
-    root?: string;
-    /** Any Standard Schema implementation, including Valibot 1 and Zod 4. */
-    schema?: ContentSchema;
-  };
+  /** @deprecated Use `collections` instead. */
+  content?: CollectionConfig;
+  collections?: Record<string, CollectionConfig>;
   output?: string;
+  /** Default plugins for collections that do not declare their own list. */
   plugins?: readonly AnyLumePlugin[];
 }
 

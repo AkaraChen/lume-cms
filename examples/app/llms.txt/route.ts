@@ -1,8 +1,9 @@
-import { getSource } from '@/lib/source';
+import { getAllSources } from '@/lib/source';
 import { llms } from 'fumadocs-core/source';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
-  return new Response(llms(await getSource()).index());
+  const sources = await getAllSources();
+  return new Response(Object.values(sources).map((source) => llms(source).index()).join('\n\n'));
 }

@@ -21,5 +21,5 @@ jobs:
       - run: pnpm check
       - run: pnpm size
       - run: pnpm --filter lume-cms-example build
-      - run: node scripts/scan-client.mjs examples UNPUBLISHED_TITLE_KIT_614 UNPUBLISHED_BODY_SENTINEL_KIT_614
+      - run: node scripts/scan-client.mjs examples UNPUBLISHED_TITLE_KIT_614 UNPUBLISHED_BODY_SENTINEL_KIT_614 UNPUBLISHED_BLOG_TITLE_KIT_618 UNPUBLISHED_BLOG_BODY_SENTINEL_KIT_618
       - run: pnpm --filter lume-cms-example test:routes

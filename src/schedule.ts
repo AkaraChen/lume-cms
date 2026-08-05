@@ -43,7 +43,14 @@ export function schedule(options: { field?: string } = {}): SchedulePlugin {
         .map((entry) => extension(entry).publishAtMs)
         .filter((value): value is number => value !== null && value > nowMs)
         .reduce((next, value) => Math.min(next, value), Infinity),
-      compare: (a, b) => (extension(b).publishAtMs ?? -Infinity) - (extension(a).publishAtMs ?? -Infinity),
+      compare: (a, b) => {
+        const left = extension(a).publishAtMs;
+        const right = extension(b).publishAtMs;
+        if (left === null && right === null) return 0;
+        if (left === null) return 1;
+        if (right === null) return -1;
+        return right - left;
+      },
       pageData: (entry) => ({ publishDate: extension(entry).publishDate }),
     },
   });
