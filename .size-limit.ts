@@ -35,6 +35,6 @@ export default [
   {
     name: 'published runtime total',
     path: ['dist/*.mjs', 'bin/*.mjs'],
-    limit: '12.8 kB',
+    limit: '12.7 kB',
   },
 ];

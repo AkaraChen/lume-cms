@@ -6,7 +6,7 @@ import fg from 'fast-glob';
 import { frontmatter } from 'fumadocs-core/content/md/frontmatter';
 import { mdxPreset } from 'fumadocs-core/content/mdx/preset-runtime';
 import { defaultStringifier } from 'fumadocs-core/mdx-plugins/stringifier';
-import { getSlugs } from 'fumadocs-core/source';
+import { getSlugs, PathUtils } from 'fumadocs-core/source';
 import {
   defaultMetaSchema,
   defaultPageSchema,
@@ -107,6 +107,8 @@ export class CompileCache {
   }
 }
 
+// `remarkLLMs` overrides `filterElement`, so it cannot express our non-executing
+// MDX degradation or literal title/href fallback. Keep using its public stringifier primitive.
 const stringifyProcessedMarkdown = defaultStringifier({
   filterElement(node) {
     switch (node.type) {
@@ -291,7 +293,7 @@ async function collectionFiles(
       onlyFiles: true as const,
       unique: true as const,
     };
-    const rootPattern = path.relative(cwd, path.resolve(cwd, item.root ?? 'content')).replace(/\\/g, '/');
+    const rootPattern = PathUtils.slash(path.relative(cwd, path.resolve(cwd, item.root ?? 'content')));
     const i18n = item.i18n ? normalizeI18n(item.i18n) : undefined;
     const metaGlob = i18n && i18n.parser !== 'dir' ? 'meta{,.*}.json' : 'meta.json';
     const [pageFiles, discoveredMetaFiles] = await Promise.all([
@@ -318,7 +320,7 @@ async function collectionFiles(
 }
 
 function relativeContentPath(contentRoot: string, absolutePath: string): string {
-  return path.relative(contentRoot, absolutePath).replace(/\\/g, '/');
+  return PathUtils.slash(path.relative(contentRoot, absolutePath));
 }
 
 async function parseMeta(
