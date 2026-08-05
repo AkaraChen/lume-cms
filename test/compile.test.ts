@@ -1,9 +1,12 @@
 import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it } from 'vitest';
 import * as v from 'valibot';
 import { compileContent, serializeCompiledContent } from '../src/compile.js';
+import { getMdxComponent } from '../src/fumadocs.js';
 
 const dirs: string[] = [];
 
@@ -32,6 +35,26 @@ describe('compileContent', () => {
     expect(result.entries.map((item) => item.id)).toEqual(['data', 'hello']);
     expect(result.entries[0]?.body.html).toContain('<h1>JSON body</h1>');
     expect(result.entries[1]?.body.toc).toEqual([{ title: 'Heading', url: '#heading', depth: 1 }]);
+  });
+
+  it('compiles and renders MDX with frontmatter and components', async () => {
+    const cwd = await fixture({
+      'content/component.mdx': '---\ntitle: Component\n---\n# MDX heading\n\n<Callout answer={40 + 2}>MDX body</Callout>',
+    });
+    const result = await compileContent({ cwd, write: false });
+    const body = result.entries[0]!.body;
+    expect(body.format).toBe('mdx');
+    expect(body.code).toContain('function _createMdxContent');
+    expect(body.toc).toEqual([{ title: 'MDX heading', url: '#mdx-heading', depth: 1 }]);
+
+    const Content = await getMdxComponent(body);
+    const html = renderToStaticMarkup(createElement(Content, {
+      components: {
+        Callout: ({ answer, children }: { answer: number; children: unknown }) =>
+          createElement('aside', null, `${answer}:`, children as never),
+      },
+    }));
+    expect(html).toContain('<aside>42:MDX body</aside>');
   });
 
   it('uses an injected Valibot schema and reports the source path on failure', async () => {

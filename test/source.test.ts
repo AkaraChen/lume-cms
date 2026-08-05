@@ -11,7 +11,7 @@ function entry(id: string, publishAtMs: number | null, draft = false): CompiledE
     publishAtMs,
     draft,
     data: { title: id, secret: `secret-${id}` },
-    body: { markdown: id, html: `<p>${id}</p>`, toc: [] },
+    body: { format: 'markdown', markdown: id, html: `<p>${id}</p>`, toc: [] },
   };
 }
 

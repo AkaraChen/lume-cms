@@ -5,8 +5,11 @@ export interface TocItem {
 }
 
 export interface CompiledBody {
+  format: 'markdown' | 'mdx';
   markdown: string;
   html: string;
+  /** Compiled MDX function body. Present only when format is `mdx`. */
+  code?: string;
   toc: TocItem[];
 }
 

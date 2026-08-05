@@ -15,7 +15,7 @@ describe('createFumadocsSource', () => {
         publishAtMs: 1_000,
         draft: false,
         data: { title: 'Scheduled' },
-        body: { markdown: 'secret', html: '<p>secret</p>', toc: [] },
+        body: { format: 'markdown', markdown: 'secret', html: '<p>secret</p>', toc: [] },
       }],
     };
     const source = createFumadocsSource(content, { now: () => new Date(now), maxStaleMs: 86_400_000 });

@@ -1,5 +1,6 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { compile as compileMdxSource, type CompileOptions as MdxCompileOptions } from '@mdx-js/mdx';
 import { fromZonedTime } from 'date-fns-tz';
 import fg from 'fast-glob';
 import matter from 'gray-matter';
@@ -69,11 +70,34 @@ async function compileMarkdown(markdown: string) {
     toc.push({ title, url: `#${count ? `${base}-${count}` : base}`, depth: node.depth });
   });
   const html = String(await unified().use(remarkParse).use(remarkRehype).use(rehypeStringify).process(markdown));
-  return { markdown, html, toc };
+  return { format: 'markdown' as const, markdown, html, toc };
+}
+
+function collectToc(toc: TocItem[]): NonNullable<MdxCompileOptions['remarkPlugins']>[number] {
+  return () => (tree) => {
+    const counts = new Map<string, number>();
+    visit(tree, 'heading', (node: { depth: number; children?: unknown[] }) => {
+      const title = textOf(node);
+      const base = slugify(title);
+      const count = counts.get(base) ?? 0;
+      counts.set(base, count + 1);
+      toc.push({ title, url: `#${count ? `${base}-${count}` : base}`, depth: node.depth });
+    });
+  };
+}
+
+async function compileMdx(mdx: string) {
+  const toc: TocItem[] = [];
+  const code = String(await compileMdxSource(mdx, {
+    outputFormat: 'function-body',
+    development: false,
+    remarkPlugins: [collectToc(toc)],
+  }));
+  return { format: 'mdx' as const, markdown: mdx, html: '', code, toc };
 }
 
 function relativeSlug(sourcePath: string, root: string): string[] {
-  let value = path.relative(root, sourcePath).replace(/\\/g, '/').replace(/\.(md|markdown|json)$/i, '');
+  let value = path.relative(root, sourcePath).replace(/\\/g, '/').replace(/\.(md|mdx|markdown|json)$/i, '');
   if (value.endsWith('/index')) value = value.slice(0, -'/index'.length);
   return value.split('/').filter(Boolean);
 }
@@ -99,7 +123,7 @@ export async function compileContent(options: CompileOptions = {}): Promise<Comp
   const cwd = path.resolve(options.cwd ?? process.cwd());
   const config = options.config ?? (await loadLumeConfig(cwd));
   const contentRoot = path.resolve(cwd, config.content?.root ?? 'content');
-  const include = config.content?.include ?? ['content/**/*.{md,markdown,json}'];
+  const include = config.content?.include ?? ['content/**/*.{md,mdx,markdown,json}'];
   const files = await fg(include, {
     cwd,
     ignore: config.content?.exclude,
@@ -157,7 +181,7 @@ export async function compileContent(options: CompileOptions = {}): Promise<Comp
         ...dates,
         draft: data.draft === true,
         data,
-        body: await compileMarkdown(candidate.markdown),
+        body: extension === '.mdx' ? await compileMdx(candidate.markdown) : await compileMarkdown(candidate.markdown),
       });
     }
   }

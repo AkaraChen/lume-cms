@@ -1,6 +1,6 @@
 # lume-cms
 
-`lume-cms` is a deliberately small content compiler and runtime source for Fumadocs. Authors write Markdown with frontmatter (or JSON), the CLI produces deterministic JSON, and one server-only source enforces scheduled visibility for pages, lists, navigation, RSS, sitemap, search, and other consumers.
+`lume-cms` is a deliberately small content compiler and runtime source for Fumadocs. Authors write Markdown or MDX with frontmatter (or JSON), the CLI produces deterministic JSON, and one server-only source enforces scheduled visibility for pages, lists, navigation, RSS, sitemap, search, and other consumers.
 
 ## Install and configure
 
@@ -17,7 +17,7 @@ import { defineConfig } from 'lume-cms/config';
 export default defineConfig({
   content: {
     root: 'content',
-    include: ['content/**/*.{md,json}'],
+    include: ['content/**/*.{md,mdx,json}'],
     schema: v.looseObject({
       title: v.string(),
       description: v.optional(v.string()),
@@ -29,7 +29,18 @@ export default defineConfig({
 });
 ```
 
-Markdown uses YAML frontmatter. JSON may be one object or an array of objects; its optional `body` field is Markdown. Run `lume-cms build` to generate stable JSON. Entries and object keys are sorted, paths are relative, line endings are stable, and no timestamp or machine path is emitted.
+Markdown and MDX use YAML frontmatter. JSON may be one object or an array of objects; its optional `body` field is Markdown. MDX is compiled with the standard `@mdx-js/mdx` compiler to a deterministic function body stored in JSON, while Markdown is compiled to HTML. Run `lume-cms build` to generate stable JSON. Entries and object keys are sorted, paths are relative, line endings are stable, and no timestamp or machine path is emitted.
+
+Render a compiled MDX page on the server with the Fumadocs entry point:
+
+```tsx
+import { getMdxComponent } from 'lume-cms/fumadocs';
+
+const Content = await getMdxComponent(page.data.body);
+return <Content components={{ Callout }} />;
+```
+
+Only evaluate JSON produced from trusted repository content. `getMdxComponent()` is protected by `server-only`; do not expose compiled MDX code to the client.
 
 `publishDate` accepts ISO 8601 with an explicit offset or `Z`. A plain `YYYY-MM-DD` is rejected unless `defaultTimezone` is configured, in which case it means midnight in that IANA timezone. Invalid values fail compilation with the source path. At runtime an entry is visible exactly when `publishDate <= now`. Missing `publishDate` is immediately visible; `draft: true` is never visible.
 
