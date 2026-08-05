@@ -43,6 +43,8 @@ export interface CompileDiagnostic {
 }
 
 export interface CompiledCollection<Data extends Record<string, unknown> = Record<string, unknown>> {
+  /** Public route prefix used by diagnostics and the matching Fumadocs loader. */
+  baseUrl?: string;
   plugins: string[];
   entries: CompiledEntry<Data>[];
   /** Optional for artifacts created before meta support. */

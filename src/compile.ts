@@ -21,6 +21,7 @@ import type {
   CompiledMeta,
 } from './types.js';
 import { assertPluginIds, type AnyLumePlugin } from './plugin.js';
+import { normalizeBaseUrl } from './url.js';
 import {
   createReferenceCollector,
   validateReferences,
@@ -342,6 +343,7 @@ export async function compileContent(options: CompileOptions = {}): Promise<Comp
 
   for (const name of Object.keys(configured).sort()) {
     const definition = configured[name]!;
+    const baseUrl = normalizeBaseUrl(definition.baseUrl);
     const contentRoot = path.resolve(cwd, definition.root ?? 'content');
     const schema = definition.schema ?? defaultFrontmatterSchema;
     const plugins = definition.plugins ?? config.plugins ?? [];
@@ -384,9 +386,10 @@ export async function compileContent(options: CompileOptions = {}): Promise<Comp
     entries.sort((a, b) => a.slug.join('/').localeCompare(b.slug.join('/')));
     assertUniqueSlugs(entries);
     for (const plugin of plugins) await plugin.compile?.finalize?.(entries, pluginContext);
-    const diagnostics = await validateReferences(cwd, referenceEntries);
+    const diagnostics = await validateReferences(cwd, referenceEntries, baseUrl);
     allDiagnostics.push(...diagnostics);
     collections[name] = {
+      baseUrl,
       plugins: plugins.map((plugin) => plugin.id),
       entries,
       metas,

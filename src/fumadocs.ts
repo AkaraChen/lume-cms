@@ -7,12 +7,14 @@ import { createElement, type ComponentType } from 'react';
 import * as runtime from 'react/jsx-runtime';
 import type { CompiledBody, CompiledCollection, CompiledContent, CompiledEntry } from './types.js';
 import { assertPluginIds, type AnyLumePlugin, type InferPluginData } from './plugin.js';
+import { normalizeBaseUrl } from './url.js';
 
 type BodyComponent = ComponentType<{ components?: Record<string, unknown> }>;
 
 export type { CompiledContent } from './types.js';
 
 export interface FumadocsCollectionOptions<Plugins extends readonly AnyLumePlugin[] = readonly AnyLumePlugin[]> {
+  /** Compatibility fallback for schema v2 output created before baseUrl was persisted. */
   baseUrl?: string;
   plugins?: Plugins;
   loaderPlugins?: LoaderPluginOption[];
@@ -96,6 +98,14 @@ function createCollectionSource<
 ) {
   const plugins = options.plugins ?? [] as unknown as Plugins;
   assertPluginMatch(compiled, plugins, name);
+  const compiledBaseUrl = compiled.baseUrl === undefined ? undefined : normalizeBaseUrl(compiled.baseUrl);
+  const fallbackBaseUrl = options.baseUrl === undefined ? undefined : normalizeBaseUrl(options.baseUrl);
+  if (compiledBaseUrl && fallbackBaseUrl && compiledBaseUrl !== fallbackBaseUrl) {
+    throw new TypeError(
+      `Runtime baseUrl ${JSON.stringify(fallbackBaseUrl)} does not match compiled baseUrl ${JSON.stringify(compiledBaseUrl)} for collection ${JSON.stringify(name)}`,
+    );
+  }
+  const baseUrl = compiledBaseUrl ?? fallbackBaseUrl ?? '/';
 
   type SourceConfig = {
     pageData: LumePageData<Data & InferPluginData<Plugins>>;
@@ -158,7 +168,7 @@ function createCollectionSource<
   function createGeneration(at: number): Generation {
     const source: DynamicSource<SourceConfig> = { files: () => filesAt(at) };
     const loader = dynamicLoader(source, {
-      baseUrl: options.baseUrl ?? '/',
+      baseUrl,
       plugins: options.loaderPlugins,
     });
     return {
@@ -208,7 +218,9 @@ export function createFumadocsSources<
 
   const baseUrls = new Map<string, string>();
   for (const name of runtimeNames) {
-    const baseUrl = options.collections[name]!.baseUrl ?? '/';
+    const compiledBaseUrl = content.collections[name]!.baseUrl;
+    const runtimeBaseUrl = options.collections[name]!.baseUrl;
+    const baseUrl = normalizeBaseUrl(compiledBaseUrl ?? runtimeBaseUrl);
     const existing = baseUrls.get(baseUrl);
     if (existing) throw new TypeError(`Collections ${JSON.stringify(existing)} and ${JSON.stringify(name)} use the same baseUrl ${JSON.stringify(baseUrl)}`);
     baseUrls.set(baseUrl, name);

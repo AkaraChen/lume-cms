@@ -5,6 +5,7 @@ import { schedule } from 'lume-cms/schedule';
 export default defineConfig({
   collections: {
     docs: {
+      baseUrl: '/docs',
       root: 'content/docs',
       include: ['content/docs/**/*.{md,mdx}'],
       schema: v.looseObject({
@@ -16,6 +17,7 @@ export default defineConfig({
       }),
     },
     blog: {
+      baseUrl: '/blog',
       root: 'content/blog',
       include: ['content/blog/**/*.{md,mdx}'],
       schema: v.looseObject({

@@ -121,7 +121,7 @@ function splitTarget(target: string): { pathname: string; hash?: string } | unde
 }
 
 function normalizedVirtualPath(value: string): string {
-  return path.posix.normalize(value.replace(/^\/+/, ''));
+  return path.posix.normalize(value.replace(/^\/+/, '')).replace(/\/+$/, '');
 }
 
 function stem(value: string): string {
@@ -144,6 +144,24 @@ async function isFile(filePath: string): Promise<boolean> {
   }
 }
 
+function resourcePath(cwd: string, sourcePath: string, pathname: string): string | undefined {
+  try {
+    return pathname.startsWith('file:')
+      ? fileURLToPath(pathname)
+      : pathname.startsWith('/')
+        ? path.resolve(cwd, 'public', pathname.slice(1))
+        : path.resolve(cwd, path.dirname(sourcePath), pathname);
+  } catch {
+    return;
+  }
+}
+
+function withoutBaseUrl(pathname: string, baseUrl: string): string {
+  if (!pathname.startsWith('/') || baseUrl === '/') return pathname;
+  if (pathname === baseUrl || pathname === `${baseUrl}/`) return '/';
+  return pathname.startsWith(`${baseUrl}/`) ? pathname.slice(baseUrl.length) : pathname;
+}
+
 function diagnostic(
   code: CompileDiagnostic['code'],
   sourcePath: string,
@@ -161,7 +179,11 @@ function diagnostic(
   };
 }
 
-export async function validateReferences(cwd: string, units: ReferenceEntry[]): Promise<CompileDiagnostic[]> {
+export async function validateReferences(
+  cwd: string,
+  units: ReferenceEntry[],
+  baseUrl = '/',
+): Promise<CompileDiagnostic[]> {
   const bySlug = new Map<string, ReferenceEntry>();
   const byPath = new Map<string, ReferenceEntry>();
   const byStem = new Map<string, ReferenceEntry>();
@@ -179,14 +201,7 @@ export async function validateReferences(cwd: string, units: ReferenceEntry[]): 
       if (!target) continue;
       const { pathname, hash } = target;
       if (isResource(reference, pathname)) {
-        let filePath: string | undefined;
-        try {
-          filePath = pathname.startsWith('file:')
-            ? fileURLToPath(pathname)
-            : pathname.startsWith('/')
-              ? path.resolve(cwd, 'public', pathname.slice(1))
-              : path.resolve(cwd, path.dirname(unit.sourcePath), pathname);
-        } catch {}
+        const filePath = resourcePath(cwd, unit.sourcePath, pathname);
         if (!filePath || !await isFile(filePath)) {
           diagnostics.push(diagnostic(
             'missing-resource',
@@ -198,24 +213,29 @@ export async function validateReferences(cwd: string, units: ReferenceEntry[]): 
         continue;
       }
 
+      const pagePathname = withoutBaseUrl(pathname, baseUrl);
       let page: ReferenceEntry | undefined;
-      if (!pathname) page = unit;
-      else if (pathname === '/') page = bySlug.get('');
+      if (!pagePathname) page = unit;
+      else if (pagePathname === '/') page = bySlug.get('');
       else {
-        const absolute = pathname.startsWith('/');
-        const extension = path.posix.extname(pathname).toLowerCase();
+        const absolute = pagePathname.startsWith('/');
+        const extension = path.posix.extname(pagePathname).toLowerCase();
         const baseDir = path.posix.dirname(normalizedVirtualPath(unit.entry.path));
-        const virtualTarget = normalizedVirtualPath(absolute ? pathname : path.posix.join(baseDir, pathname));
+        const virtualTarget = normalizedVirtualPath(
+          absolute ? pagePathname : path.posix.join(baseDir, pagePathname),
+        );
         if (contentExtensions.has(extension)) page = byPath.get(virtualTarget);
         else {
           page = byStem.get(stem(virtualTarget));
           if (!page) {
-            const slugTarget = absolute ? normalizedVirtualPath(pathname) : stem(virtualTarget);
+            const slugTarget = absolute ? normalizedVirtualPath(pagePathname) : stem(virtualTarget);
             page = bySlug.get(slugTarget);
           }
         }
       }
       if (!page) {
+        const possibleResource = resourcePath(cwd, unit.sourcePath, pathname);
+        if (possibleResource && await isFile(possibleResource)) continue;
         if (pathname !== '/') {
           diagnostics.push(diagnostic(
             'missing-page',

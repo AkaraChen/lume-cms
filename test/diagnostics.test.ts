@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { CompileCache, compileContent, serializeCompiledContent } from '../src/compile.js';
+import { createFumadocsSource } from '../src/fumadocs.js';
 import { schedule } from '../src/schedule.js';
 
 const dirs: string[] = [];
@@ -90,6 +91,38 @@ title: Home
       name: 'CompileDiagnosticsError',
       diagnostics: [{ code: 'missing-page', target: './missing' }],
     });
+  });
+
+  it('accepts trailing-slash pages, extensionless resources, and configured base URLs in strict mode', async () => {
+    const cwd = await fixture({
+      'content/index.md': `---
+title: Home
+---
+[Direct page](./guide/)
+[Directory index](./manual/)
+[Base direct](/docs/guide/)
+[Base index](/docs/manual/)
+[License](./LICENSE)
+[CNAME](/CNAME)
+`,
+      'content/guide.mdx': '---\ntitle: Guide\n---\nGuide',
+      'content/manual/index.mdx': '---\ntitle: Manual\n---\nManual',
+      'content/LICENSE': 'example license',
+      'public/CNAME': 'docs.example.com',
+    });
+    const result = await compileContent({
+      cwd,
+      write: false,
+      strict: true,
+      config: { content: { baseUrl: '/docs/' } },
+    });
+
+    expect(result.collections.default?.baseUrl).toBe('/docs');
+    expect(result.collections.default?.diagnostics).toEqual([]);
+    const source = await createFumadocsSource(result).getSource();
+    expect(source.getPage(['guide'])?.url).toBe('/docs/guide');
+    expect(source.getPage(['manual'])?.url).toBe('/docs/manual');
+    expect(() => createFumadocsSource(result, { baseUrl: '/other' })).toThrow(/does not match compiled baseUrl/);
   });
 
   it('validates every source entry without treating draft or scheduled targets as missing', async () => {

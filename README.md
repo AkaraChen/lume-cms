@@ -18,6 +18,7 @@ import { schedule } from 'lume-cms/schedule';
 export default defineConfig({
   collections: {
     docs: {
+      baseUrl: '/docs',
       root: 'content/docs',
       include: ['content/docs/**/*.{md,mdx}'],
       schema: v.looseObject({
@@ -27,6 +28,7 @@ export default defineConfig({
       }),
     },
     blog: {
+      baseUrl: '/blog',
       root: 'content/blog',
       include: ['content/blog/**/*.{md,mdx}'],
       schema: v.looseObject({
@@ -42,9 +44,9 @@ export default defineConfig({
 });
 ```
 
-Each collection owns its root, globs, schema, and optional plugin list. Top-level `plugins` are defaults for collections that omit `plugins`. A source file may belong to only one collection. The old `content` shape remains a one-minor compatibility path, compiles as a collection named `default`, and emits a deprecation warning. Schema-version 2 JSON must be rebuilt; the runtime intentionally does not guess a migration.
+Each collection owns its root, globs, schema, public `baseUrl`, and optional plugin list. Top-level `plugins` are defaults for collections that omit `plugins`. A source file may belong to only one collection. The old `content` shape remains a one-minor compatibility path, compiles as a collection named `default`, and emits a deprecation warning. Schema-version 2 JSON must be rebuilt; the runtime intentionally does not guess a migration.
 
-The configuration accepts the Standard Schema interface. Valibot 1.x works directly as shown; Zod 4 and other conforming implementations can be used without an adapter. The built-in page schema includes Fumadocs' `title`, `description`, `icon`, and `full` fields. Plugin-owned fields such as `publishDate` stay out of the user schema and compiled page data.
+The configuration accepts the Standard Schema interface. Valibot 1.x works directly as shown; Zod 4 and other conforming implementations can be used without an adapter. The built-in page schema includes Fumadocs' `title`, `description`, `icon`, and `full` fields. Plugin-owned fields such as `publishDate` stay out of the user schema and compiled page data. Each collection persists its normalized `baseUrl`, so its reference validation and runtime Fumadocs loader cannot drift.
 
 Markdown and MDX use Fumadocs' public YAML frontmatter parser and `mdxPreset()`, matching the official starter baseline: GFM, heading IDs, images, code tabs, npm install blocks, Shiki code highlighting, structured search data, and table-of-contents extraction. `meta.json` is the only JSON content input and is passed to Fumadocs as a native meta file. Its `title`, `description`, `icon`, `root`, `defaultOpen`, `pages`, and `pagesIndex` fields therefore control the page tree with Fumadocs' standard ordering, separators, folder expansion, exclusions, and external-link syntax. The Markdown pipeline is not configurable. The compiler stores a deterministic MDX function body in JSON. Raw HTML in Markdown is deliberately discarded; do not enable `allowDangerousHtml`/`rehype-raw` without adding an explicit sanitization policy. Run `lume-cms build` to generate stable JSON. Entries, meta files, and object keys are sorted, paths are relative, line endings are stable, and no timestamp or machine path is emitted.
 
@@ -67,7 +69,7 @@ Keep process orchestration in the consuming app. For example, install `concurren
 
 `pnpm dev` then starts both processes and forwards Ctrl-C so both the content watcher and Next.js shut down together. `concurrently` belongs to the consuming app only; it is not a `lume-cms` runtime dependency.
 
-Every build also validates static content references and emits deterministic JSON diagnostics with a source path, line, column, target, and code. Missing content pages, heading anchors, Markdown images, literal MDX `<img src>` values, and linked local assets are warnings by default, so the output is still written; use `lume-cms build --strict` (with or without `--watch`) to fail the build and preserve the last successful output. Relative page and asset paths resolve from the authoring file. Absolute asset paths resolve from `public/`, matching Fumadocs `remarkImage({ useImport: false })` URL semantics. HTTP(S), protocol, code-block, and dynamic JSX-expression targets are not fetched or guessed; literal Markdown reference links and literal `<a href>` values are checked.
+Every build also validates static content references and emits deterministic JSON diagnostics with a source path, line, column, target, and code. Missing content pages, heading anchors, Markdown images, literal MDX `<img src>` values, and linked local assets are warnings by default, so the output is still written; use `lume-cms build --strict` (with or without `--watch`) to fail the build and preserve the last successful output. Relative page and asset paths resolve from the authoring file; clean URLs with a trailing slash resolve either a direct page or a directory `index` page. Existing extensionless files such as `LICENSE` and `CNAME` are accepted as local resources after page resolution. Absolute page links strip the configured `baseUrl`, while absolute asset paths resolve from `public/`, matching Fumadocs `remarkImage({ useImport: false })` URL semantics. HTTP(S), protocol, code-block, and dynamic JSX-expression targets are not fetched or guessed; literal Markdown reference links and literal `<a href>` values are checked.
 
 Reference validation uses the complete compiled graph, including draft and scheduled entries. A visible page may therefore link to a real hidden entry without producing a false “missing page” diagnostic, while broken links originating inside draft or future content are still reported. This static graph does not expose hidden entries: all runtime consumers continue to use the single deadline-aware visibility predicate.
 
@@ -104,7 +106,7 @@ export const { getSource: getDocsSource } = sources.docs;
 export const { getSource: getBlogSource } = sources.blog;
 ```
 
-`collection()` is a type-preserving identity helper: each nested source keeps the page-data fields contributed by its own plugin tuple. The runtime requires the compiled and configured collection names to match in both directions and rejects duplicate `baseUrl` values. `getAllPages()` is the visibility-safe union for sitemap and text exports. The singular `createFumadocsSource()` remains available only when JSON contains exactly one collection.
+`collection()` is a type-preserving identity helper: each nested source keeps the page-data fields contributed by its own plugin tuple. The runtime requires the compiled and configured collection names to match in both directions and rejects duplicate `baseUrl` values. Runtime `baseUrl` values are compatibility confirmations for artifacts created before the field was persisted; conflicting values fail immediately. `getAllPages()` is the visibility-safe union for sitemap and text exports. The singular `createFumadocsSource()` remains available only when JSON contains exactly one collection.
 
 Plugins run on both sides of the JSON boundary, so each compile collection and runtime source must register the same ordered plugin list. The compiled JSON records plugin ids and the runtime fails immediately if either side is missing, extra, duplicated, or reordered. Fumadocs loader plugins can still be supplied separately through `loaderPlugins`.
 
