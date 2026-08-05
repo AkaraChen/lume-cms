@@ -196,18 +196,21 @@ pnpm add lume-cms
     expect(output.entries[0].slug).toEqual(['page']);
   });
 
-  it('runs compile hooks in registration order and isolates extension namespaces', async () => {
+  it('passes transformed and defaulted plugin schema output without a separate keys declaration', async () => {
     const cwd = await fixture({ 'content/page.md': '---\ntitle: Page\nsecret: hidden\n---\nBody' });
     const calls: string[] = [];
-    const schema = v.looseObject({ secret: v.optional(v.string()) });
+    const schema = v.object({
+      secret: v.pipe(v.string(), v.transform((value) => value.toUpperCase())),
+      mode: v.optional(v.string(), 'default-mode'),
+    });
     const makePlugin = (id: string) => definePlugin({
       id,
-      frontmatter: { schema, keys: ['secret'] },
+      frontmatter: { schema },
       compile: {
         setup: () => { calls.push(`setup:${id}`); },
         entry: ({ frontmatter }: { frontmatter: Record<string, unknown> }) => {
           calls.push(`entry:${id}`);
-          return { value: frontmatter.secret };
+          return { value: frontmatter.secret, mode: frontmatter.mode };
         },
         finalize: () => { calls.push(`finalize:${id}`); },
       },
@@ -219,7 +222,10 @@ pnpm add lume-cms
     });
 
     expect(calls).toEqual(['setup:one', 'setup:two', 'entry:one', 'entry:two', 'finalize:one', 'finalize:two']);
-    expect(result.entries[0]?.data).not.toHaveProperty('secret');
-    expect(result.entries[0]?.ext).toEqual({ one: { value: 'hidden' }, two: { value: 'hidden' } });
+    expect(result.entries[0]?.data).toEqual({ title: 'Page', draft: false });
+    expect(result.entries[0]?.ext).toEqual({
+      one: { value: 'HIDDEN', mode: 'default-mode' },
+      two: { value: 'HIDDEN', mode: 'default-mode' },
+    });
   });
 });

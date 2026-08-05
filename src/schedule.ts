@@ -22,8 +22,7 @@ export function schedule(options: { field?: string } = {}): SchedulePlugin {
   return definePlugin({
     id: 'schedule',
     frontmatter: {
-      schema: v.looseObject({ [field]: v.optional(v.string()) }),
-      keys: [field],
+      schema: v.object({ [field]: v.optional(v.string()) }),
     },
     compile: {
       entry({ frontmatter, sourcePath }) {

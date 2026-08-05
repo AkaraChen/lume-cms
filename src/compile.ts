@@ -97,16 +97,23 @@ export async function compileContent(options: CompileOptions = {}): Promise<Comp
     const slug = typeof data.slug === 'string' ? data.slug.split('/').filter(Boolean) : getSlugs(contentPath);
     const ext: Record<string, unknown> = {};
     for (const plugin of plugins) {
+      let pluginFrontmatter: Record<string, unknown> = {};
       if (plugin.frontmatter) {
-        await validate(plugin.frontmatter.schema, parsed.data, sourcePath, `${plugin.id} plugin frontmatter`);
-        for (const key of plugin.frontmatter.keys) delete data[key];
+        pluginFrontmatter = await validate(
+          plugin.frontmatter.schema,
+          parsed.data,
+          sourcePath,
+          `${plugin.id} plugin frontmatter`,
+        );
+        for (const key of Object.keys(pluginFrontmatter)) delete data[key];
       }
       if (plugin.compile?.entry) {
         ext[plugin.id] = await plugin.compile.entry({
           sourcePath,
           contentPath,
           slug,
-          frontmatter: parsed.data as Record<string, unknown>,
+          frontmatter: pluginFrontmatter,
+          rawFrontmatter: parsed.data as Record<string, unknown>,
         });
       }
     }

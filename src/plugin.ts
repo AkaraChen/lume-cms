@@ -11,7 +11,10 @@ export interface CompileEntryContext {
   sourcePath: string;
   contentPath: string;
   slug: string[];
+  /** The plugin schema's validated output. */
   frontmatter: Record<string, unknown>;
+  /** Unvalidated source frontmatter, for exceptional cases that need it. */
+  rawFrontmatter: Record<string, unknown>;
 }
 
 export interface RuntimeContext {
@@ -22,7 +25,6 @@ export interface LumePlugin<Frontmatter extends object = object, Data extends ob
   id: string;
   frontmatter?: {
     schema: StandardSchemaV1<unknown, Record<string, unknown>>;
-    keys: readonly string[];
   };
   compile?: {
     setup?(context: PluginContext): void | Promise<void>;
