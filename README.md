@@ -233,6 +233,40 @@ validUntil = next unpublished publishDate, or Infinity when none remain
 
 Each collection caches bounded, immutable loader generations over `[observedAt, validUntil)` intervals. Concurrent reads in one interval coalesce, while an older frozen request keeps its pre-publication generation after a newer request crosses the deadline; evicted generations are safely rebuilt from their frozen time. A docs deadline does not affect blog and vice versa. Pass a request-scoped frozen clock such as React `cache(() => new Date())` at the top level; this keeps navigation, page, metadata, OG, RSS, and search self-consistent when overlapping requests straddle a publication boundary.
 
+## Dynamic search
+
+For one collection, pass the `getSource` function itself to Fumadocs search. `createFromSource()` keys its index by the returned loader instance, so when lume-cms invalidates that instance at the next visibility deadline, the following search request rebuilds from the new filtered page set without recompiling content or redeploying Next.js. `localeMap` remains supported on this path for an explicit tokenizer per locale, but Fumadocs 16 marks it deprecated because the default `multilingual` tokenizer needs no mapping; omit it unless a language-specific tokenizer is intentional.
+
+For multiple collections, obtain `getAllSources()` inside every request and pass their currently visible pages to `createSearchAPI('advanced')`. The runnable route in `examples/app/api/search/route.ts` carries both collection names and the default schema's `tags` extension into the official advanced index:
+
+```ts
+import { getAllSources } from '@/lib/source';
+import { createSearchAPI } from 'fumadocs-core/search/server';
+
+export const dynamic = 'force-dynamic';
+
+export async function GET(request: Request) {
+  const loaded = await getAllSources();
+  const api = createSearchAPI('advanced', {
+    indexes: Object.entries(loaded).flatMap(([tag, source]) =>
+      source.getPages().map((page) => ({
+      id: `${tag}:${page.url}`,
+      title: page.data.title,
+      description: page.data.description,
+      url: page.url,
+      locale: page.locale,
+      structuredData: page.data.structuredData,
+      tag: [tag, ...(page.data.tags ?? [])],
+    }))),
+  });
+  return api.GET(request);
+}
+```
+
+`/api/search?query=component&tag=docs,guide` then exercises Fumadocs' end-to-end tag filter; comma-separated tags require every named tag. The `locale` query parameter selects the isolated locale index for i18n sources. Do not await a loader at module scope or add an independent cache around either search route.
+
+The search source contains only pages already admitted by the shared visibility predicate. Draft pages and entries hidden by any runtime plugin are never indexed. A scheduled page enters the next request's index exactly at its deadline. This contract is for the dynamic server route; static index export remains outside this mode because it cannot refresh at a future deadline by itself.
+
 ## Next.js requirements
 
 Request-time publishing requires `export const dynamic = 'force-dynamic'` for every collection's page details, layouts/navigation, lists, RSS, search, metadata/OG, text exports, and sitemap. Every server component and route handler must load its source inside the request; never retain an awaited loader instance at module scope. Single-source search can use `createFromSource(getSource)`. Multi-source search should use `createSearchAPI('advanced', { indexes })`, tag every collection's pages, and create the search API inside the request so a future post appears without a redeploy.
