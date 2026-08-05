@@ -7,13 +7,18 @@ import type { AnyLumePlugin } from './plugin.js';
 
 export { defineI18n } from 'fumadocs-core/i18n';
 export type { I18nConfig } from 'fumadocs-core/i18n';
-export { definePlugin } from './plugin.js';
+export { composeOnion, definePlugin } from './plugin.js';
 export type {
   AnyLumePlugin,
+  CompileCollectionContext,
+  CompileEntryContext,
   LumePlugin,
+  Middleware,
+  Next,
   PreviewContext,
   PreviewOptions,
   RuntimeContext,
+  ResolvedEntry,
 } from './plugin.js';
 
 /** The exact Fumadocs baseline, exported so Zod users can extend it directly. */
