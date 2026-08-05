@@ -17,8 +17,23 @@ export interface CompileEntryContext {
   rawFrontmatter: Record<string, unknown>;
 }
 
+export interface PreviewOptions {
+  draft?: boolean;
+  future?: boolean;
+  /** Reserved for plugins that implement expiration visibility. */
+  expired?: boolean;
+}
+
+export interface PreviewContext {
+  draft: boolean;
+  future: boolean;
+  expired: boolean;
+}
+
 export interface RuntimeContext {
   nowMs: number;
+  /** Present only for an isolated per-request preview read. */
+  preview?: PreviewContext;
 }
 
 export interface LumePlugin<Frontmatter extends object = object, Data extends object = object> {

@@ -17,7 +17,13 @@ import type { I18nConfig } from 'fumadocs-core/i18n';
 import { createElement, type ComponentType } from 'react';
 import * as runtime from 'react/jsx-runtime';
 import type { CompiledBody, CompiledCollection, CompiledContent, CompiledEntry } from './types.js';
-import { assertPluginIds, type AnyLumePlugin, type InferPluginData } from './plugin.js';
+import {
+  assertPluginIds,
+  type AnyLumePlugin,
+  type InferPluginData,
+  type PreviewOptions,
+  type RuntimeContext,
+} from './plugin.js';
 import { normalizeBaseUrl } from './url.js';
 import { normalizeI18n, type CompiledI18nConfig } from './i18n.js';
 
@@ -85,12 +91,14 @@ export interface FumadocsCollectionFactory<
   RuntimeI18n extends I18nConfig | undefined = undefined,
 > {
   getSource(): Promise<LumeLoaderOutput<Collection, Plugins, RuntimeI18n>>;
+  getPreviewSource(options?: PreviewOptions): Promise<LumeLoaderOutput<Collection, Plugins, RuntimeI18n>>;
 }
 
 type InferSingleCollection<Content extends CompiledContent> =
   Content['collections'][keyof Content['collections']];
 
 export type { CompiledContent } from './types.js';
+export type { PreviewOptions } from './plugin.js';
 
 export interface FumadocsCollectionOptions<
   Data extends Record<string, unknown> = Record<string, unknown>,
@@ -142,8 +150,9 @@ export function collection<
 }
 
 /** The single visibility boundary. Every Fumadocs read path derives from its files. */
-function isVisible(entry: CompiledEntry, plugins: readonly AnyLumePlugin[], nowMs: number): boolean {
-  return !entry.draft && plugins.every((plugin) => plugin.runtime?.visible?.(entry, { nowMs }) !== false);
+function isVisible(entry: CompiledEntry, plugins: readonly AnyLumePlugin[], context: RuntimeContext): boolean {
+  return (!entry.draft || context.preview?.draft === true)
+    && plugins.every((plugin) => plugin.runtime?.visible?.(entry, context) !== false);
 }
 
 function bodyComponent(body: CompiledBody): BodyComponent {
@@ -227,7 +236,7 @@ function createCollectionSource<
     metaData: MetaData;
   };
 
-  function filesAt(at: number): ReturnType<DynamicSource<SourceConfig>['files']> {
+  function filesAt(context: RuntimeContext): ReturnType<DynamicSource<SourceConfig>['files']> {
     return [
       ...(compiled.metas ?? []).map((meta) => ({
         type: 'meta' as const,
@@ -235,7 +244,7 @@ function createCollectionSource<
         data: meta.data,
       })),
       ...compiled.entries
-        .filter((entry) => isVisible(entry, plugins, at))
+        .filter((entry) => isVisible(entry, plugins, context))
         .sort((a, b) => {
           for (const plugin of plugins) {
             const result = plugin.runtime?.compare?.(a, b) ?? 0;
@@ -272,8 +281,8 @@ function createCollectionSource<
     );
   }
 
-  function createLoader(at: number) {
-    const source: DynamicSource<SourceConfig> = { files: () => filesAt(at) };
+  function createLoader(context: RuntimeContext) {
+    const source: DynamicSource<SourceConfig> = { files: () => filesAt(context) };
     return dynamicLoader(source, {
       baseUrl,
       i18n,
@@ -299,7 +308,7 @@ function createCollectionSource<
   let accessCounter = 0;
 
   function createGeneration(at: number): Generation {
-    const loader = createLoader(at);
+    const loader = createLoader({ nowMs: at });
     return {
       from: at,
       until: deadlineAt(at),
@@ -329,7 +338,16 @@ function createCollectionSource<
     return generation.value;
   }
 
-  return { getSource } as unknown as FumadocsCollectionFactory<Collection, Plugins, RuntimeI18n>;
+  function getPreviewSource(previewOptions: PreviewOptions = {}) {
+    const preview = {
+      draft: previewOptions.draft === true,
+      future: previewOptions.future === true,
+      expired: previewOptions.expired === true,
+    };
+    return createLoader({ nowMs: currentTime(), preview }).get();
+  }
+
+  return { getSource, getPreviewSource } as unknown as FumadocsCollectionFactory<Collection, Plugins, RuntimeI18n>;
 }
 
 export function createFumadocsSources<

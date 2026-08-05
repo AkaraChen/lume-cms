@@ -30,7 +30,7 @@ export const { sources, getAllSources, getAllPages } = createFumadocsSources(
   },
 );
 
-export const { getSource } = sources.docs;
+export const { getPreviewSource, getSource } = sources.docs;
 export const { getSource: getBlogSource } = sources.blog;
 
 type Source = Awaited<ReturnType<typeof getSource>>;

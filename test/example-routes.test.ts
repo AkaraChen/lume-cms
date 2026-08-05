@@ -36,4 +36,17 @@ describe('example request-time publishing contract', () => {
 
     expect(await readFile('README.md', 'utf8')).not.toMatch(/generateStaticParams|dynamicParams/);
   });
+
+  it('limits preview reads to the draftMode-guarded docs detail request', async () => {
+    const files = await fg('examples/app/**/*.{ts,tsx}');
+    const previewConsumers = (await Promise.all(files.map(async (file) => ({
+      file,
+      source: await readFile(file, 'utf8'),
+    })))).filter(({ source }) => source.includes('getPreviewSource'));
+
+    expect(previewConsumers.map(({ file }) => file)).toEqual(['examples/app/docs/[[...slug]]/page.tsx']);
+    expect(previewConsumers[0]?.source).toContain("import { draftMode } from 'next/headers'");
+    expect(previewConsumers[0]?.source).toMatch(/\(await draftMode\(\)\)\.isEnabled/);
+    expect(previewConsumers[0]?.source).toMatch(/preview\s*\? await getPreviewSource/);
+  });
 });

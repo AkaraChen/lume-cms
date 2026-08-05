@@ -30,6 +30,10 @@ In the project, you can see:
 
 Run `lume-cms build` before Next.js starts to compile Markdown and MDX into `content.generated.json`.
 
+The docs detail route checks Next.js `draftMode()` inside each request and uses
+the isolated `getPreviewSource()` only when draft mode is enabled. Production
+lists, search, RSS, sitemap, OG, and text exports continue to use `getSource()`.
+
 ## Learn More
 
 To learn more about Next.js and Fumadocs, take a look at the following

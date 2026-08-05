@@ -8,7 +8,13 @@ import type { AnyLumePlugin } from './plugin.js';
 export { defineI18n } from 'fumadocs-core/i18n';
 export type { I18nConfig } from 'fumadocs-core/i18n';
 export { definePlugin } from './plugin.js';
-export type { AnyLumePlugin, LumePlugin } from './plugin.js';
+export type {
+  AnyLumePlugin,
+  LumePlugin,
+  PreviewContext,
+  PreviewOptions,
+  RuntimeContext,
+} from './plugin.js';
 
 /** The exact Fumadocs baseline, exported so Zod users can extend it directly. */
 export const officialPageSchema = fumadocsPageSchema;

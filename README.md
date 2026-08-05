@@ -199,6 +199,49 @@ export const { getSource: getBlogSource } = sources.blog;
 
 Plugins run on both sides of the JSON boundary, so each compile collection and runtime source must register the same ordered plugin list. The compiled JSON records plugin ids and the runtime fails immediately if either side is missing, extra, duplicated, or reordered. Fumadocs loader plugins can still be supplied separately through `loaderPlugins`.
 
+### Per-request preview
+
+Each collection factory also returns `getPreviewSource(options)`. Its sparse options enable
+only the requested visibility dimensions: `draft`, `future`, and the reserved
+`expired` flag. Options are normalized to booleans before runtime plugins run.
+The built-in `schedule()` plugin relaxes its date check only for
+`future: true`; plugins that ignore `context.preview` retain their normal,
+restrictive visibility behavior.
+
+Guard preview reads with Next.js draft mode in the same request that renders the
+page. Authentication and authorization of the route that enables draft mode are
+the application's responsibility; lume-cms does not validate preview tokens:
+
+```tsx
+import { draftMode } from 'next/headers';
+import { notFound } from 'next/navigation';
+import { getDocsPreviewSource, getDocsSource } from '@/lib/source';
+
+export const dynamic = 'force-dynamic';
+
+export default async function Page({ params }: PageProps<'/docs/[[...slug]]'>) {
+  const { slug } = await params;
+  const preview = (await draftMode()).isEnabled;
+  const source = preview
+    ? await getDocsPreviewSource({ draft: true, future: true })
+    : await getDocsSource();
+  const page = source.getPage(slug);
+  if (!page) notFound();
+
+  const MDX = page.data.body;
+  return <MDX />;
+}
+```
+
+Each preview call creates a fresh, uncached loader. It does not participate in
+the public loader's publication deadline, refresh coalescing, or `invalidate()`
+state. Never put a preview response in shared CDN or ISR cache. Preview still
+executes compiled MDX, so only use artifacts built from trusted repository
+content. Search, RSS, sitemap, OG, `llms`/Markdown exports, and every other
+public consumer must remain fixed to `getSource()`.
+
+The preview API remains covered by the repository's Brotli size budgets.
+
 ### Official loader options
 
 Each collection source covers the complete `loader()` option surface from the locked Fumadocs version:

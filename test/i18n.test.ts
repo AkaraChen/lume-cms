@@ -26,8 +26,8 @@ afterEach(async () => {
 describe('Fumadocs i18n source contract', () => {
   it('supports dot parsing, fallback page trees, locale URLs, and deadline visibility', async () => {
     const cwd = await fixture({
-      'content/meta.json': JSON.stringify({ title: 'English docs', pages: ['index', 'guide', 'only-en', 'shared', 'release', 'localized-draft', 'secret', 'draft'] }),
-      'content/meta.zh.json': JSON.stringify({ title: '中文文档', pages: ['index', 'guide', 'only-en', 'shared', 'release', 'localized-draft', 'secret', 'draft'] }),
+      'content/meta.json': JSON.stringify({ title: 'English docs', pages: ['index', 'guide', 'only-en', 'shared', 'shared-draft', 'release', 'localized-draft', 'secret', 'draft'] }),
+      'content/meta.zh.json': JSON.stringify({ title: '中文文档', pages: ['index', 'guide', 'only-en', 'shared', 'shared-draft', 'release', 'localized-draft', 'secret', 'draft'] }),
       'content/index.mdx': '---\ntitle: Home\n---\n[Setup](./guide/setup.mdx)',
       'content/index.zh.mdx': '---\ntitle: 首页\n---\n[设置](./guide/setup.mdx)\n[Fallback](./only-en.mdx)\n[Absolute fallback](/zh/docs/only-en)',
       'content/guide/meta.json': '{"title":"Guide","pages":["setup"]}',
@@ -36,6 +36,7 @@ describe('Fumadocs i18n source contract', () => {
       'content/guide/setup.zh.mdx': '---\ntitle: 设置\n---\n设置',
       'content/only-en.mdx': '---\ntitle: English fallback\n---\nFallback',
       'content/shared.$.mdx': '---\ntitle: Shared\n---\nShared',
+      'content/shared-draft.$.mdx': '---\ntitle: Shared draft\ndraft: true\n---\nShared draft',
       'content/release.mdx': '---\ntitle: English release\n---\nEnglish',
       'content/release.zh.mdx': '---\ntitle: 中文发布\npublishDate: 1970-01-01T00:00:01Z\n---\nChinese',
       'content/localized-draft.mdx': '---\ntitle: English public\n---\nEnglish',
@@ -102,10 +103,18 @@ describe('Fumadocs i18n source contract', () => {
     expect(before.getPage(['secret'], 'zh')).toBeUndefined();
     expect(before.getPage(['draft'], 'en')).toBeUndefined();
     expect(before.getPage(['draft'], 'zh')).toBeUndefined();
+    expect(before.getPage(['shared-draft'], 'en')).toBeUndefined();
+    expect(before.getPage(['shared-draft'], 'zh')).toBeUndefined();
     expect(before.getPageTree('en').name).toBe('English docs');
     expect(before.getPageTree('zh').name).toBe('中文文档');
     expect(JSON.stringify(before.getPageTree('zh'))).not.toContain('/zh/docs/secret');
     expect(JSON.stringify(before.getPageTree('zh'))).not.toContain('/zh/docs/draft');
+
+    const preview = await factory.getPreviewSource({ draft: true, future: true });
+    expect(preview.getPage(['release'], 'zh')?.data.title).toBe('中文发布');
+    expect(preview.getPage(['shared-draft'], 'en')).toMatchObject({ locale: 'en', data: { title: 'Shared draft' } });
+    expect(preview.getPage(['shared-draft'], 'zh')).toMatchObject({ locale: 'zh', data: { title: 'Shared draft' } });
+    expect(before.getPage(['release'], 'zh')?.data.title).toBe('English release');
 
     now = 1_000;
     const after = await factory.getSource();
