@@ -31,7 +31,7 @@ export default defineConfig({
 
 The configuration accepts the Standard Schema interface. Valibot 1.x works directly as shown; Zod 4 and other conforming implementations can be used without an adapter. The built-in page schema includes Fumadocs' `title`, `description`, `icon`, and `full` fields plus lume's scheduling fields. A `meta.json` file is validated with the matching Fumadocs navigation fields and compiled as a metadata virtual file.
 
-Markdown and MDX use YAML frontmatter. JSON may be one object or an array of objects; its optional `body` field is Markdown. Both inputs go through one pipeline fixed to Fumadocs' public MDX plugins, matching the official starter baseline: GFM, heading IDs, images, npm install blocks, Shiki code highlighting, and table-of-contents extraction. The pipeline is not configurable. The compiler stores a deterministic MDX function body in JSON. Raw HTML in Markdown is deliberately discarded; do not enable `allowDangerousHtml`/`rehype-raw` without adding an explicit sanitization policy. Run `lume-cms build` to generate stable JSON. Entries and object keys are sorted, paths are relative, line endings are stable, and no timestamp or machine path is emitted.
+Markdown and MDX use Fumadocs' public YAML frontmatter parser. JSON may be one object or an array of objects; its optional `body` field is Markdown. Both inputs go through Fumadocs' public `mdxPreset()`, matching the official starter baseline: GFM, heading IDs, images, code tabs, npm install blocks, Shiki code highlighting, structured search data, and table-of-contents extraction. The pipeline is not configurable. The compiler stores a deterministic MDX function body in JSON. Raw HTML in Markdown is deliberately discarded; do not enable `allowDangerousHtml`/`rehype-raw` without adding an explicit sanitization policy. Run `lume-cms build` to generate stable JSON. Entries and object keys are sorted, paths are relative, line endings are stable, and no timestamp or machine path is emitted.
 
 The Fumadocs adapter exposes the compiled body as the React component expected by the official starter:
 
@@ -42,28 +42,28 @@ return <MDX components={getMDXComponents()} />;
 
 Only evaluate JSON produced from trusted repository content. Component evaluation is protected by `server-only`; do not expose compiled MDX code to the client.
 
-`publishDate` accepts ISO 8601 with an explicit offset or `Z`. A plain `YYYY-MM-DD` is rejected unless `defaultTimezone` is configured, in which case it means midnight in that IANA timezone. Invalid values fail compilation with the source path. At runtime an entry is visible exactly when `publishDate <= now`. Missing `publishDate` is immediately visible; `draft: true` is never visible.
+`publishDate` accepts ISO 8601 with an explicit offset or `Z`. Plain dates and invalid values fail compilation with the source path. At runtime an entry is visible exactly when `publishDate <= now`. Missing `publishDate` is immediately visible; `draft: true` is never visible.
 
 ## Runtime source
 
 ```ts
 import content from './content.generated.json';
-import { createFumadocsSource } from 'lume-cms/fumadocs';
+import { createFumadocsSource } from 'lume-cms';
 
 export const { getSource } = createFumadocsSource(content, {
   baseUrl: '/docs',
 });
 ```
 
-The generated JSON intentionally retains future entries and their bodies. `createContentSource()` applies the only visibility predicate before deriving direct slug lookup, enumeration, route params, or Fumadocs `DynamicSource.files()` — and the Fumadocs page tree, search index and navigation are all built from that last one, so they inherit the same filter. Advancing an injected clock across a deadline changes all of those reads without compiling JSON or rebuilding the app.
+The generated JSON intentionally retains future entries and their bodies. `createFumadocsSource()` applies its only visibility predicate while producing Fumadocs `DynamicSource.files()`. The page tree, search index, navigation and every page lookup derive from those filtered files. Advancing an injected clock across a deadline changes all reads without compiling JSON or rebuilding the app.
 
 The Fumadocs adapter uses its public `DynamicSource` and `dynamicLoader()` APIs. Its cache is deadline-aware:
 
 ```text
-validUntil = min(next unpublished publishDate, now + maxStaleMs)
+validUntil = next unpublished publishDate, or Infinity when none remain
 ```
 
-It invalidates at that boundary, so a long fallback TTL cannot hold a newly published entry past its deadline.
+It invalidates at that boundary and coalesces concurrent deadline refreshes into one load.
 
 ## Next.js requirements
 
@@ -76,11 +76,9 @@ Sitemaps are metadata routes and static by default, so `app/sitemap.ts` must als
 The runtime entry points import `server-only`. Keep the JSON and any module that imports it behind the server boundary. After building an example Next.js app, scan client assets using distinctive unpublished title/body markers:
 
 ```sh
-lume-cms scan-client ./path/to/next-app "UNPUBLISHED_TITLE" "UNPUBLISHED_BODY_SENTINEL"
+node scripts/scan-client.mjs examples "UNPUBLISHED_TITLE" "UNPUBLISHED_BODY_SENTINEL"
 ```
 
-The command is shipped in the package and fails if the app's `.next/static` contains zero files, preventing a wrong-directory scan from reporting a false success. Run it after `next build` in the consuming app's CI. Also derive RSS, sitemap, search, navigation, metadata/OG, text exports, and the content-negotiation proxy path from `getSource()`; these are independent leak paths.
-
-The `/unsafe` export contains `unsafe_getAllEntriesIncludingUnpublished()` only for authenticated server-side previews. It returns a detached, deeply frozen snapshot so preview code cannot mutate the live source. The main entry does not re-export it.
+The repository-only command fails if the example's `.next/static` contains zero files, preventing a wrong-directory scan from reporting a false success. Consumers should perform an equivalent post-build scan in their own CI. Also derive RSS, sitemap, search, navigation, metadata/OG, text exports, and the content-negotiation proxy path from `getSource()`; these are independent leak paths.
 
 Important: future bodies are plaintext in `content.generated.json` and therefore in Git history when that file is committed. This is accepted for the private v1 repository, but a public repository provides no confidentiality even if the website filters entries correctly. Do not commit sensitive future material to a public repository.

@@ -1,19 +1,10 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { compile as compileMdx } from '@mdx-js/mdx';
-import { fromZonedTime } from 'date-fns-tz';
 import fg from 'fast-glob';
-import {
-  rehypeCode,
-  rehypeToc,
-  remarkGfm,
-  remarkHeading,
-  remarkImage,
-  remarkNpm,
-  structure,
-} from 'fumadocs-core/mdx-plugins';
-import matter from 'gray-matter';
-import { parse as parseYaml } from 'yaml';
+import { frontmatter } from 'fumadocs-core/content/md/frontmatter';
+import { mdxPreset } from 'fumadocs-core/content/mdx/preset-runtime';
+import { getSlugs } from 'fumadocs-core/source';
 import {
   defaultFrontmatterSchema,
   defaultMetaSchema,
@@ -24,8 +15,6 @@ import {
 import type { CompiledBody, CompiledContent, CompiledEntry, CompiledMeta } from './types.js';
 
 const OFFSET_DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/;
-const PLAIN_DATE = /^\d{4}-\d{2}-\d{2}$/;
-const CONTENT_EXTENSION = /\.(md|mdx|markdown|json)$/i;
 
 export interface CompileOptions {
   cwd?: string;
@@ -33,21 +22,16 @@ export interface CompileOptions {
   write?: boolean;
 }
 
-function parsePublishDate(value: unknown, sourcePath: string, timezone?: string) {
+function parsePublishDate(value: unknown, sourcePath: string) {
   if (value === undefined || value === null) return { publishDate: null, publishAtMs: null };
   if (typeof value !== 'string') {
     throw new Error(`${sourcePath}: publishDate must be an ISO 8601 string with Z or an offset`);
   }
 
-  let date: Date;
-  if (OFFSET_DATE_TIME.test(value)) {
-    date = new Date(value);
-  } else if (PLAIN_DATE.test(value) && timezone) {
-    date = fromZonedTime(`${value}T00:00:00`, timezone);
-  } else {
-    const hint = timezone ? '' : ' (or configure defaultTimezone for a plain date)';
-    throw new Error(`${sourcePath}: invalid publishDate ${JSON.stringify(value)}; expected ISO 8601 with Z or an offset${hint}`);
+  if (!OFFSET_DATE_TIME.test(value)) {
+    throw new Error(`${sourcePath}: invalid publishDate ${JSON.stringify(value)}; expected ISO 8601 with Z or an offset`);
   }
+  const date = new Date(value);
 
   if (!Number.isFinite(date.getTime())) {
     throw new Error(`${sourcePath}: invalid publishDate ${JSON.stringify(value)}`);
@@ -55,40 +39,18 @@ function parsePublishDate(value: unknown, sourcePath: string, timezone?: string)
   return { publishDate: value, publishAtMs: date.getTime() };
 }
 
-function textOf(node: unknown): string {
-  if (!node || typeof node !== 'object') return '';
-  const { value, children } = node as { value?: unknown; children?: unknown[] };
-  if (typeof value === 'string') return value;
-  return children?.map(textOf).join('') ?? '';
-}
-
-/**
- * One pipeline for Markdown and MDX, fixed to the `fumadocs-mdx` default preset.
- * Heading ids, the table of contents and syntax highlighting all come from Fumadocs.
- */
 async function compileBody(source: string): Promise<CompiledBody> {
-  const file = await compileMdx(source, {
-    outputFormat: 'function-body',
+  const file = await compileMdx(source, await mdxPreset({
     development: false,
-    remarkPlugins: [
-      remarkGfm,
-      [remarkHeading, { generateToc: false }],
-      [remarkImage, { useImport: false }],
-      remarkNpm,
-    ],
-    rehypePlugins: [rehypeCode, [rehypeToc, { exportToc: { as: 'data' } }]],
-  });
-  const toc = (file.data.rehypeToc ?? []).map((item) => ({
-    title: textOf(item.title),
-    url: item.url,
-    depth: item.depth,
+    remarkHeadingOptions: { generateToc: true },
+    remarkImageOptions: { useImport: false },
   }));
-  return { markdown: source, code: String(file), toc, structuredData: structure(source) };
-}
-
-function relativeSlug(sourcePath: string, root: string): string[] {
-  const value = path.relative(root, sourcePath).replace(/\\/g, '/').replace(CONTENT_EXTENSION, '');
-  return value.replace(/(^|\/)index$/, '').split('/').filter(Boolean);
+  return {
+    markdown: source,
+    code: String(file),
+    toc: (file.data.toc ?? []) as CompiledBody['toc'],
+    structuredData: file.data.structuredData!,
+  };
 }
 
 function stableValue(value: unknown): unknown {
@@ -136,8 +98,8 @@ function parseJson(raw: string, sourcePath: string): unknown {
 /** A source file yields one candidate, except a JSON array which yields one per item. */
 function readCandidates(raw: string, sourcePath: string, isJson: boolean) {
   if (!isJson) {
-    const parsed = matter(raw, { engines: { yaml: (source) => parseYaml(source) as Record<string, unknown> } });
-    return [{ data: parsed.data as unknown, markdown: parsed.content, suffix: undefined as number | undefined }];
+    const parsed = frontmatter(raw);
+    return [{ data: parsed.data, markdown: parsed.content, suffix: undefined as number | undefined }];
   }
 
   const parsed = parseJson(raw, sourcePath);
@@ -184,14 +146,13 @@ export async function compileContent(options: CompileOptions = {}): Promise<Comp
       const data = await validate(schema, candidate.data, sourcePath, 'frontmatter');
       const slug = typeof data.slug === 'string'
         ? data.slug.split('/').filter(Boolean)
-        : [...relativeSlug(absolutePath, contentRoot), ...(candidate.suffix ? [String(candidate.suffix)] : [])];
+        : [...getSlugs(contentPath), ...(candidate.suffix ? [String(candidate.suffix)] : [])];
       entries.push({
-        id: slug.join('/') || 'index',
         slug,
         // Fumadocs addresses files by `path`, so every entry needs its own.
         // A JSON array yields several entries from one file: number them apart.
         path: candidate.suffix ? contentPath.replace(/(\.[^./]+)$/, `-${candidate.suffix}$1`) : contentPath,
-        ...parsePublishDate(data.publishDate, sourcePath, config.defaultTimezone),
+        ...parsePublishDate(data.publishDate, sourcePath),
         draft: data.draft === true,
         data,
         body: await compileBody(candidate.markdown),
@@ -199,8 +160,8 @@ export async function compileContent(options: CompileOptions = {}): Promise<Comp
     }
   }
 
-  entries.sort((a, b) => a.id.localeCompare(b.id));
-  assertUnique(entries.map((entry) => entry.id), 'content slug');
+  entries.sort((a, b) => a.slug.join('/').localeCompare(b.slug.join('/')));
+  assertUnique(entries.map((entry) => entry.slug.join('/')), 'content slug');
   assertUnique(entries.map((entry) => entry.path), 'content path');
   metas.sort((a, b) => a.path.localeCompare(b.path));
 

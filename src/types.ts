@@ -22,7 +22,6 @@ export interface CompiledMeta<Data extends Record<string, unknown> = Record<stri
 }
 
 export interface CompiledEntry<Data extends Record<string, unknown> = Record<string, unknown>> {
-  id: string;
   slug: string[];
   /** Path relative to the content root, the way Fumadocs addresses files. */
   path: string;
@@ -38,8 +37,3 @@ export interface CompiledContent<Data extends Record<string, unknown> = Record<s
   entries: CompiledEntry<Data>[];
   metas?: CompiledMeta[];
 }
-
-export type PublicEntry<Data extends Record<string, unknown> = Record<string, unknown>> = Omit<
-  CompiledEntry<Data>,
-  'publishAtMs' | 'draft'
->;

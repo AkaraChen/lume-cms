@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
@@ -11,23 +11,14 @@ if (!files.has('dist/cli.mjs')) throw new Error('Published package is missing di
 
 const fixture = mkdtempSync(path.join(tmpdir(), 'lume-cms-package-'));
 try {
-  let emptyScanFailed = false;
-  try {
-    execFileSync(process.execPath, ['bin/lume-cms.mjs', 'scan-client', fixture, 'UNPUBLISHED_SENTINEL'], {
-      stdio: 'pipe',
-    });
-  } catch (error) {
-    emptyScanFailed = (error.stderr?.toString() ?? '').includes('Scanned 0 files');
+  mkdirSync(path.join(fixture, 'content'), { recursive: true });
+  writeFileSync(path.join(fixture, 'content/page.md'), '---\ntitle: Page\n---\nBody');
+  execFileSync(process.execPath, [path.resolve('bin/lume-cms.mjs'), 'build'], { cwd: fixture, stdio: 'pipe' });
+  if (!existsSync(path.join(fixture, 'content.generated.json'))) {
+    throw new Error('Published CLI did not generate content.generated.json');
   }
-  if (!emptyScanFailed) throw new Error('Published scan-client CLI did not fail closed on an empty bundle');
-
-  mkdirSync(path.join(fixture, '.next/static/chunks'), { recursive: true });
-  writeFileSync(path.join(fixture, '.next/static/chunks/app.js'), 'public-content');
-  execFileSync(process.execPath, ['bin/lume-cms.mjs', 'scan-client', fixture, 'UNPUBLISHED_SENTINEL'], {
-    stdio: 'pipe',
-  });
 } finally {
   rmSync(fixture, { recursive: true, force: true });
 }
 
-console.log('Published CLI artifact and scan-client command verified.');
+console.log('Published CLI artifact and build command verified.');

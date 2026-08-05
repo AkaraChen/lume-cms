@@ -36,7 +36,6 @@ export interface LumeConfig {
     metaSchema?: ContentSchema;
   };
   output?: string;
-  defaultTimezone?: string;
 }
 
 export function defineConfig<const T extends LumeConfig>(config: T): T {

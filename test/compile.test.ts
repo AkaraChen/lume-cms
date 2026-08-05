@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import * as v from 'valibot';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import { compileContent, serializeCompiledContent } from '../src/compile.js';
-import { createContentSource } from '../src/source.js';
+import { createFumadocsSource } from '../src/fumadocs.js';
 
 const dirs: string[] = [];
 
@@ -26,8 +26,8 @@ async function renderBody(
   result: Awaited<ReturnType<typeof compileContent>>,
   components?: Record<string, unknown>,
 ) {
-  const files = await createContentSource(result).toDynamicSource().files();
-  const Body = files.find((file) => file.type === 'page')!.data.body;
+  const page = (await createFumadocsSource(result).getSource()).getPages()[0]!;
+  const Body = page.data.body;
   return renderToStaticMarkup(await (Body as (props: unknown) => Promise<ReactElement>)({ components }));
 }
 
@@ -43,7 +43,7 @@ describe('compileContent', () => {
       'content/data.json': JSON.stringify({ title: 'JSON page', body: '# JSON body' }),
     });
     const result = await compileContent({ cwd, write: false });
-    expect(result.entries.map((item) => item.id)).toEqual(['data', 'hello']);
+    expect(result.entries.map((item) => item.slug.join('/'))).toEqual(['data', 'hello']);
     expect(result.entries[0]?.body.code).toContain('JSON body');
     expect(result.entries[1]?.body.toc).toEqual([{ title: 'Heading', url: '#heading', depth: 1 }]);
   });
@@ -96,6 +96,29 @@ const answer = 42;
     }
   });
 
+  it('uses the complete Fumadocs preset and native slug semantics', async () => {
+    const cwd = await fixture({
+      'content/(group)/你好.mdx': `---
+title: Native preset
+---
+# Search heading
+
+\`\`\`sh tab="npm"
+npm install lume-cms
+\`\`\`
+
+\`\`\`sh tab="pnpm"
+pnpm add lume-cms
+\`\`\`
+`,
+    });
+    const result = await compileContent({ cwd, write: false });
+
+    expect(result.entries[0]?.slug).toEqual(['%E4%BD%A0%E5%A5%BD']);
+    expect(result.entries[0]?.body.code).toContain('CodeBlockTabs');
+    expect(result.entries[0]?.body.structuredData.headings[0]?.content).toBe('Search heading');
+  });
+
   it('keeps one addressable path per entry across object, array and custom-slug JSON', async () => {
     const cwd = await fixture({
       'content/single.json': JSON.stringify({ title: 'Single', body: '# Single' }),
@@ -110,7 +133,7 @@ const answer = 42;
     });
     const result = await compileContent({ cwd, write: false });
 
-    expect(result.entries.map((entry) => entry.id)).toEqual([
+    expect(result.entries.map((entry) => entry.slug.join('/'))).toEqual([
       'alias/a', 'alias/b', 'list/1', 'list/2', 'single',
     ]);
     expect(result.entries.map((entry) => entry.path)).toEqual([
@@ -118,9 +141,9 @@ const answer = 42;
     ]);
 
     // Fumadocs stores files by path, so a shared path would silently drop pages.
-    const files = await createContentSource(result).toDynamicSource().files();
-    expect(new Set(files.map((file) => file.path)).size).toBe(files.length);
-    expect(files).toHaveLength(5);
+    const pages = (await createFumadocsSource(result).getSource()).getPages();
+    expect(new Set(pages.map((page) => page.path)).size).toBe(pages.length);
+    expect(pages).toHaveLength(5);
   });
 
   it('fails the build when two entries would claim the same path', async () => {
@@ -171,21 +194,19 @@ const answer = 42;
       write: false,
       config: { content: { root: 'content/docs', include: ['content/docs/**/*.{mdx,json}'] } },
     });
-    expect(result.entries[0]).toMatchObject({ id: 'index', slug: [], path: 'index.mdx' });
+    expect(result.entries[0]).toMatchObject({ slug: [], path: 'index.mdx' });
     expect(result.entries[0]?.body.structuredData.headings[0]?.content).toBe('Searchable heading');
     expect(result.metas).toEqual([{ path: 'meta.json', data: { title: 'Docs', pages: ['index'] } }]);
-    const files = await createContentSource(result).toDynamicSource().files();
-    expect(files.map((file) => file.type)).toEqual(['page', 'meta']);
-    const page = files.find((file) => file.type === 'page');
+    const source = await createFumadocsSource(result).getSource();
+    const page = source.getPages()[0];
     expect(typeof page?.data.body).toBe('function');
     expect(page?.data.structuredData).toBeDefined();
+    expect(source.getPageTree()).toBeDefined();
   });
 
-  it('rejects invalid or offset-less dates unless defaultTimezone is configured', async () => {
+  it('rejects invalid or offset-less dates', async () => {
     const cwd = await fixture({ 'content/date.md': '---\ntitle: Date\npublishDate: 2026-09-01\n---\nBody' });
     await expect(compileContent({ cwd, write: false })).rejects.toThrow(/content\/date\.md: invalid publishDate/);
-    const result = await compileContent({ cwd, write: false, config: { defaultTimezone: 'Asia/Shanghai' } });
-    expect(result.entries[0]?.publishAtMs).toBe(Date.parse('2026-08-31T16:00:00Z'));
   });
 
   it('normalizes equivalent timezone instants and produces deterministic bytes', async () => {
@@ -207,6 +228,6 @@ const answer = 42;
     });
     await compileContent({ cwd });
     const output = JSON.parse(await readFile(path.join(cwd, 'out.json'), 'utf8'));
-    expect(output.entries[0].id).toBe('page');
+    expect(output.entries[0].slug).toEqual(['page']);
   });
 });
