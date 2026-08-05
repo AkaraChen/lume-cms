@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { describe, expect, it } from 'vitest';
-import type { Folder, Item, Node } from 'fumadocs-core/page-tree';
+import type { Folder, Item, Node, Root } from 'fumadocs-core/page-tree';
 import { collection, createFumadocsSource, createFumadocsSources } from '../src/fumadocs.js';
 import type { CompiledContent } from '../src/types.js';
 import { schedule } from '../src/schedule.js';
@@ -17,7 +17,11 @@ function entry(id: string, publishAtMs: number | null, draft = false) {
 }
 
 function starterConsumerSets(
-  source: Awaited<ReturnType<ReturnType<typeof createFumadocsSource>['getSource']>>,
+  source: {
+    getPage(slugs: string[]): unknown;
+    getPages(): { slugs: string[] }[];
+    getPageTree(): Root;
+  },
   candidates = ['published', 'scheduled', 'draft'],
 ) {
   const direct = () => candidates.filter((slug) => source.getPage([slug])).sort();
