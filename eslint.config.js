@@ -33,5 +33,8 @@ export default defineConfig(
         tsconfigRootDir: import.meta.dirname,
       },
     },
+    rules: {
+      "one-var": "off",
+    },
   },
 );
