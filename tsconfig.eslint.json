@@ -1,0 +1,29 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": false,
+    "noEmit": true,
+    "jsx": "preserve"
+  },
+  "include": [
+    "src/**/*",
+    "test/**/*",
+    "scripts/**/*",
+    "bin/**/*",
+    "examples/**/*",
+    "*.ts",
+    "*.mts",
+    "*.cts",
+    "*.js",
+    "*.mjs",
+    "*.cjs"
+  ],
+  "exclude": [
+    "dist",
+    "coverage",
+    "node_modules",
+    "examples/.next",
+    "examples/node_modules"
+  ]
+}
