@@ -1,5 +1,5 @@
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
@@ -65,18 +65,20 @@ if (!files.has('dist/schedule.mjs') || !files.has('dist/schedule.d.mts')) {
 }
 const runtimeBundle = readFileSync('dist/index.mjs', 'utf8');
 const configBundle = readFileSync('dist/config.mjs', 'utf8');
-const cliBundle = readFileSync('dist/cli.mjs', 'utf8');
+const publishedBundles = readdirSync('dist')
+  .filter((file) => file.endsWith('.mjs'))
+  .map((file) => readFileSync(path.join('dist', file), 'utf8'));
 if (runtimeBundle.includes('publishAtMs')) {
   throw new Error('The core runtime bundle statically includes schedule implementation details');
 }
 if (!/from ["']valibot["']/.test(configBundle)) {
   throw new Error('The config entry must keep Valibot external');
 }
-if ([runtimeBundle, configBundle, cliBundle].some((bundle) => /from ["']zod["']/.test(bundle))) {
+if (publishedBundles.some((bundle) => /from ["']zod["']/.test(bundle))) {
   throw new Error('Published entries must not import Zod');
 }
-if (!/from ["']c12["']/.test(cliBundle)) {
-  throw new Error('The CLI entry must keep c12 external');
+if (!publishedBundles.some((bundle) => /from ["']c12["']/.test(bundle))) {
+  throw new Error('The published CLI chunks must keep c12 external');
 }
 execFileSync('pnpm', [
   'exec',
@@ -142,7 +144,7 @@ try {
     cwd: fixture,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
-  await waitForOutput(watchChild, /Watching for content and configuration changes\./);
+  await waitForOutput(watchChild, /Watching for content changes\./);
   const rebuilt = waitForOutput(watchChild, /\(1 rebuilt, 0 cached\)/);
   writeFileSync(path.join(fixture, 'content/page.md'), '---\ntitle: Changed\n---\nChanged');
   await rebuilt;
