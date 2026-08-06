@@ -1,6 +1,7 @@
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import type { I18nConfig } from 'fumadocs-core/i18n';
-import * as v from 'valibot';
+import { metaSchema as fumadocsMetaSchema, pageSchema as fumadocsPageSchema } from 'fumadocs-core/source/schema';
+import { z } from 'zod';
 import type {
   ContentStorage,
   ContentStorageMetaFile,
@@ -42,26 +43,14 @@ export type {
 
 export type ContentSchema = StandardSchemaV1<unknown, Record<string, unknown>>;
 
-export const defaultPageSchema = v.object({
-  title: v.string(),
-  description: v.optional(v.string()),
-  icon: v.optional(v.string()),
-  full: v.optional(v.boolean()),
-  _openapi: v.optional(v.record(v.string(), v.unknown())),
+/** The exact Fumadocs baseline, exported so Zod users can extend it directly. */
+export const officialPageSchema = fumadocsPageSchema;
+export const officialMetaSchema = fumadocsMetaSchema;
+export const defaultPageSchema = officialPageSchema.extend({
   /** lume-cms public page-data extension, used by search integrations. */
-  tags: v.optional(v.array(v.string())),
+  tags: z.array(z.string()).optional(),
 });
-
-export const defaultMetaSchema = v.object({
-  title: v.optional(v.string()),
-  pages: v.optional(v.array(v.string())),
-  pagesIndex: v.optional(v.string()),
-  description: v.optional(v.string()),
-  root: v.optional(v.boolean()),
-  defaultOpen: v.optional(v.boolean()),
-  collapsible: v.optional(v.boolean()),
-  icon: v.optional(v.string()),
-});
+export const defaultMetaSchema = officialMetaSchema;
 
 type CollectionStorage<Plugins extends readonly AnyLumePlugin[]> = ContentStorage<
   ContentStoragePageFile<undefined, PageData & InferPluginData<Plugins>>,
@@ -87,7 +76,7 @@ export interface CollectionConfig<
   root?: string;
   /** Any Standard Schema implementation, including Valibot 1 and Zod 4. */
   schema?: ContentSchema;
-  /** Defaults to the Valibot Fumadocs-compatible meta schema. */
+  /** Defaults to Fumadocs metaSchema; replace or extend it with any Standard Schema. */
   metaSchema?: ContentSchema;
   /** Build/runtime capabilities owned by this collection. */
   plugins?: Plugins;

@@ -46,8 +46,8 @@ function waitForExit(child, timeoutMs = 5_000) {
 }
 
 const manifest = JSON.parse(readFileSync('package.json', 'utf8'));
-if ([manifest.dependencies, manifest.peerDependencies, manifest.devDependencies].some((group) => group?.zod !== undefined)) {
-  throw new Error('lume-cms must not depend on Zod');
+if (manifest.peerDependencies?.zod === undefined || manifest.dependencies?.zod !== undefined) {
+  throw new Error('Zod must be published as a peer dependency');
 }
 if (manifest.dependencies?.valibot === undefined) {
   throw new Error('Valibot must be published as a regular dependency');
@@ -71,11 +71,11 @@ const publishedBundles = readdirSync('dist')
 if (runtimeBundle.includes('publishAtMs')) {
   throw new Error('The core runtime bundle statically includes schedule implementation details');
 }
-if (!/from ["']valibot["']/.test(configBundle)) {
-  throw new Error('The config entry must keep Valibot external');
+if (!/from ["']zod["']/.test(configBundle)) {
+  throw new Error('The config entry must keep Zod external');
 }
-if (publishedBundles.some((bundle) => /from ["']zod["']/.test(bundle))) {
-  throw new Error('Published entries must not import Zod');
+if (/from ["']zod["']/.test(runtimeBundle)) {
+  throw new Error('The core runtime entry must not import Zod');
 }
 if (!publishedBundles.some((bundle) => /from ["']c12["']/.test(bundle))) {
   throw new Error('The published CLI chunks must keep c12 external');
@@ -96,19 +96,23 @@ execFileSync('pnpm', [
 ], { stdio: 'pipe' });
 const { schedule } = await import('../dist/schedule.mjs');
 if (schedule().id !== 'schedule') throw new Error('The published schedule entry is not importable');
-const { safeParse } = await import('valibot');
 const configModule = await import('../dist/config.mjs');
 const {
   defaultMetaSchema,
   defaultPageSchema,
   defineI18n,
+  officialMetaSchema,
+  officialPageSchema,
 } = configModule;
 if ('composeOnion' in configModule) throw new Error('The internal middleware composer is publicly exported');
-if (!safeParse(defaultPageSchema, { title: 'Page', tags: ['docs'] }).success) {
+if (!defaultPageSchema.safeParse({ title: 'Page', tags: ['docs'] }).success) {
   throw new Error('The published default page schema is not importable');
 }
-if (!safeParse(defaultMetaSchema, { title: 'Docs', pages: ['index'] }).success) {
+if (!defaultMetaSchema.safeParse({ title: 'Docs', pages: ['index'] }).success) {
   throw new Error('The published default meta schema is not importable');
+}
+if (officialPageSchema === undefined || officialMetaSchema === undefined) {
+  throw new Error('The published official Fumadocs schema baselines are missing');
 }
 const i18n = defineI18n({ languages: ['en', 'zh'], defaultLanguage: 'en', parser: 'dot' });
 if (i18n.defaultLanguage !== 'en' || typeof i18n.translations !== 'function') {

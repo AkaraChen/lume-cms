@@ -34,13 +34,13 @@ export default defineConfig({
 
 Each collection owns its root, root-relative globs, schema, public `baseUrl`, runtime loader options, and plugin list. Plugins never apply globally: here `schedule()` extends and filters `blog`, while `docs` has no scheduling field or behavior. `collection()` preserves that plugin tuple for runtime page-data inference. A source file may belong to only one collection. Omitting `collections` creates one collection named `default`. Schema-version 2 JSON must be rebuilt; the runtime intentionally does not guess a migration.
 
-The package boundaries keep the core slim without adding API-only splits: `lume-cms/config` owns config, plugin identities, and the Valibot default schemas. Package dependencies are kept external, including Valibot and the CLI's c12 dependency, so size limits measure lume-cms source rather than third-party code. `lume-cms/schedule` owns scheduling, and the root `lume-cms` entry owns the server runtime. Importing `lume.config.ts` from a server module does not pull the c12 config loader into the application path.
+The package boundaries keep the core slim without adding API-only splits: `lume-cms/config` owns config, plugin identities, and the default schemas; Zod is a peer dependency. Package dependencies are kept external, including the CLI's c12 dependency, so size limits measure lume-cms source rather than third-party code. `lume-cms/schedule` owns scheduling, and the root `lume-cms` entry owns the server runtime. Importing `lume.config.ts` from a server module does not pull the c12 config loader into the application path.
 
-With no schema override, lume-cms uses Valibot schemas matching Fumadocs' public page and meta fields. The configuration accepts the Standard Schema interface, so other conforming implementations can replace them without an adapter. Plugin-owned fields such as `publishDate` stay out of public page data. Each collection persists its normalized `baseUrl`, so its reference validation and runtime Fumadocs loader cannot drift.
+With no schema override, lume-cms imports Fumadocs' locked `pageSchema` and `metaSchema` directly. The configuration accepts the Standard Schema interface, so Valibot 1.x, Zod 4, and other conforming implementations can replace them without an adapter. Plugin-owned fields such as `publishDate` stay out of public page data. Each collection persists its normalized `baseUrl`, so its reference validation and runtime Fumadocs loader cannot drift.
 
 ## Schema contract
 
-The default page and meta validators are implemented with Valibot and match the Fumadocs public data contract. The complete field matrix is:
+The default page and meta validators track `fumadocs-core/source/schema` from the installed Fumadocs version. The complete field matrix is:
 
 | File | Field | Fumadocs | lume-cms default | Boundary |
 | --- | --- | --- | --- | --- |
@@ -61,27 +61,27 @@ The default page and meta validators are implemented with Valibot and match the 
 | meta | `collapsible` | optional boolean | same | public meta data |
 | meta | `icon` | optional string | same | public meta data |
 
-The Valibot defaults strip unknown keys. `draft` and `slug` are validated from raw frontmatter and removed before the public page schema runs, so they keep their reserved semantics even when the public schema is replaced. Compilation fails if a schema default or transform tries to emit either reserved key, preventing a second public source of truth. Plugin-owned input such as `publishDate` is also validated from raw frontmatter and removed from public page data.
+The official Zod objects strip unknown keys. `draft` and `slug` are validated from raw frontmatter and removed before the public page schema runs, so they keep their reserved semantics even when the public schema is replaced. Compilation fails if a schema default or transform tries to emit either reserved key, preventing a second public source of truth. Plugin-owned input such as `publishDate` is also validated from raw frontmatter and removed from public page data.
 
-Extend the exported Valibot defaults by composing their entries:
+For the Fumadocs-style `.extend()` workflow, install Zod and extend the exported defaults:
 
 ```ts
-import * as v from 'valibot';
+import { z } from 'zod';
 import { defaultMetaSchema, defaultPageSchema, defineConfig } from 'lume-cms/config';
 
 export default defineConfig({
   collections: {
     default: {
-      schema: v.object({ ...defaultPageSchema.entries, category: v.picklist(['docs', 'blog']) }),
-      metaSchema: v.object({ ...defaultMetaSchema.entries, badge: v.optional(v.string()) }),
+      schema: defaultPageSchema.extend({ category: z.enum(['docs', 'blog']) }),
+      metaSchema: defaultMetaSchema.extend({ badge: z.string().optional() }),
     },
   },
 });
 ```
 
-Both slots accept any Standard Schema instead. Supplying one is an explicit replacement: include every public field that should survive in compiled data. The private `draft` and `slug` fields remain reserved and cannot be redefined by the public schema.
+Both slots accept any Standard Schema instead, including Valibot 1 and custom implementations. Supplying one is an explicit replacement: include every public field that should survive in compiled data. The private `draft` and `slug` fields remain reserved and cannot be redefined by the public schema.
 
-Every Fumadocs upgrade must review the field matrix and run the schema contract tests. Changes that make existing compiled artifacts invalid require a compiled-schema migration. A user-supplied replacement intentionally opts out of default additions until that schema is updated.
+Schema additions in a future compatible Fumadocs release flow into the defaults because lume-cms imports the official objects rather than copying their shapes. Every Fumadocs upgrade must run the schema conformance tests and review deterministic output changes. Changes that make existing compiled artifacts invalid require a compiled-schema migration. A user-supplied replacement intentionally opts out of automatic additions until that schema is updated.
 
 ## Internationalization
 
