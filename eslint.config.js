@@ -50,6 +50,21 @@ export default defineConfig(
       // CLI entry (`src/cli.ts`) needs a shebang; bin wrapper owns execution.
       "n/hashbang": "off",
       "n/shebang": "off",
+
+      // Case-by-case: keep unicorn/name-replacements; drop the rest (KIT-649).
+      "id-length": "off",
+      "no-continue": "off",
+      "no-ternary": "off",
+      "no-undefined": "off",
+      "no-void": "off",
+      "unicorn/no-null": "off",
+    },
+  },
+  // CLI is the stdout/stderr surface; keep no-console elsewhere.
+  {
+    files: ["src/cli.ts"],
+    rules: {
+      "no-console": "off",
     },
   },
 );
