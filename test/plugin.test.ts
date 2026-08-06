@@ -1,5 +1,5 @@
 import { describe, expect, expectTypeOf, it } from 'vitest';
-import { collection, createFumadocsSource, createFumadocsSources } from '../src/fumadocs.js';
+import { collection, createFumadocsSource, createFumadocsSources } from '../src/index.js';
 import {
   composeOnion,
   definePlugin,

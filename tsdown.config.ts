@@ -2,7 +2,7 @@ import { defineConfig } from 'tsdown';
 
 export default defineConfig({
   entry: {
-    index: 'src/fumadocs.ts',
+    index: 'src/index.ts',
     config: 'src/config.ts',
     schedule: 'src/schedule.ts',
     cli: 'src/cli.ts',

@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { describe, expect, it } from 'vitest';
 import type { Folder, Item, Node, Root } from 'fumadocs-core/page-tree';
-import { collection, createFumadocsSource, createFumadocsSources } from '../src/fumadocs.js';
+import { collection, createFumadocsSource, createFumadocsSources } from '../src/index.js';
 import {
   definePlugin,
   type Next,
