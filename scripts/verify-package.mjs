@@ -71,13 +71,15 @@ execFileSync('pnpm', [
 ], { stdio: 'pipe' });
 const { schedule } = await import('../dist/schedule.mjs');
 if (schedule().id !== 'schedule') throw new Error('The published schedule entry is not importable');
+const configModule = await import('../dist/config.mjs');
 const {
   defaultMetaSchema,
   defaultPageSchema,
   defineI18n,
   officialMetaSchema,
   officialPageSchema,
-} = await import('../dist/config.mjs');
+} = configModule;
+if ('composeOnion' in configModule) throw new Error('The internal middleware composer is publicly exported');
 if (!defaultPageSchema.safeParse({ title: 'Page', tags: ['docs'] }).success) {
   throw new Error('The published default page schema is not importable');
 }

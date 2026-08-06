@@ -7,7 +7,7 @@ import type { AnyLumePlugin } from './plugin.js';
 
 export { defineI18n } from 'fumadocs-core/i18n';
 export type { I18nConfig } from 'fumadocs-core/i18n';
-export { composeOnion, definePlugin, defineTimeGate } from './plugin.js';
+export { definePlugin, defineTimeGate } from './plugin.js';
 export type {
   AnyLumePlugin,
   CompileCollectionContext,
