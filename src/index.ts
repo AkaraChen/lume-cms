@@ -157,7 +157,10 @@ export function collection<
   return options;
 }
 
-type ResolvedState = ResolvedEntry & { dataPatch: Record<string, unknown> };
+type ResolvedState = ResolvedEntry & {
+  body: BodyComponent;
+  dataPatch: Record<string, unknown>;
+};
 function freezeCompiled(entry: CompiledEntry): Readonly<CompiledEntry> {
   const clone = structuredClone(entry);
   const freeze = (value: unknown): void => {
@@ -169,12 +172,13 @@ function freezeCompiled(entry: CompiledEntry): Readonly<CompiledEntry> {
   return clone;
 }
 
-function resolvedEntry(compiled: CompiledEntry): ResolvedState {
+function resolvedEntry(compiled: CompiledEntry, body: BodyComponent): ResolvedState {
   const hidden = new Set<string>();
   const state = new Map<string, unknown>();
   const dataPatch: Record<string, unknown> = {};
   return {
     compiled,
+    body,
     hide: (reason) => hidden.add(reason),
     hidden: () => [...hidden],
     set: (key, value) => state.set(key, value),
@@ -232,7 +236,11 @@ function createCollectionSource<
   type Data = InferCollectionData<Collection>;
   const plugins = options.plugins ?? [] as unknown as Plugins;
   assertPluginMatch(compiled, plugins, name);
-  const compiledEntries = compiled.entries.map(freezeCompiled);
+  const compiledPages = compiled.entries.map((entry) => {
+    const frozen = freezeCompiled(entry);
+    return { compiled: frozen, body: bodyComponent(frozen.body) };
+  });
+  const compiledEntries = compiledPages.map((page) => page.compiled);
   const hooks = plugins.map((plugin) => plugin.runtime ?? {});
   for (const [index, hook] of hooks.entries()) {
     if (hook.timeDependent && !hook.deadline) {
@@ -289,7 +297,7 @@ function createCollectionSource<
   );
 
   function resolveAt(context: RuntimeContext) {
-    const entries = compiledEntries.map(resolvedEntry);
+    const entries = compiledPages.map((page) => resolvedEntry(page.compiled, page.body));
     for (const entry of entries) resolve(entry, context);
     const listed = list(entries, context);
     if (!Array.isArray(listed)) throw new TypeError('lume-cms list middleware must return an entry array');
@@ -311,7 +319,7 @@ function createCollectionSource<
             title: typeof compiledEntry.data.title === 'string'
               ? compiledEntry.data.title
               : compiledEntry.slug.join('/') || 'index',
-            body: bodyComponent(compiledEntry.body),
+            body: entry.body,
             content: compiledEntry.body.markdown,
             processedMarkdown: compiledEntry.body.processedMarkdown,
             toc: compiledEntry.body.toc,

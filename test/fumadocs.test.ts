@@ -350,6 +350,29 @@ describe('createFumadocsSource', () => {
     expect(entryReads).toBe(0);
   });
 
+  it('reuses prebuilt body components across public generations and previews', async () => {
+    let now = 19;
+    const source = createFumadocsSource({
+      schemaVersion: 3,
+      collections: { default: {
+        baseUrl: '/',
+        plugins: ['schedule'],
+        entries: [entry('published', 10), entry('scheduled', 20)],
+        metas: [],
+      } },
+    }, { now: () => new Date(now), plugins: [schedule()] });
+
+    const before = await source.getSource();
+    const body = before.getPage(['published'])?.data.body;
+    now = 20;
+    const after = await source.getSource();
+    const preview = await source.getPreviewSource({ future: true });
+
+    expect(after.getPage(['published'])?.data.body).toBe(body);
+    expect(preview.getPage(['published'])?.data.body).toBe(body);
+    expect(preview.getPage(['scheduled'])?.data.body).toBe(after.getPage(['scheduled'])?.data.body);
+  });
+
   it('preserves the complete Fumadocs meta page-tree contract across a deadline', async () => {
     let now = 19;
     const pages = [
