@@ -7,13 +7,15 @@ import globals from "globals";
 import tseslint from "typescript-eslint";
 
 export default defineConfig(
+  // CLI already scopes to `src` via `pnpm lint`; ignore everything else as a belt.
   globalIgnores([
+    "**/node_modules/**",
     "dist/**",
     "coverage/**",
-    "node_modules/**",
-    "examples/.next/**",
-    "examples/node_modules/**",
-    "pnpm-lock.yaml",
+    "examples/**",
+    "test/**",
+    "scripts/**",
+    "bin/**",
   ]),
   eslint.configs.all,
   tseslint.configs.all,
@@ -27,7 +29,6 @@ export default defineConfig(
         ...globals.node,
       },
       parserOptions: {
-        // Lint-only project includes allowJs so n/* type-aware paths work on .mjs too.
         project: ["./tsconfig.eslint.json"],
         tsconfigRootDir: import.meta.dirname,
       },
