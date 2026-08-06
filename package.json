@@ -45,8 +45,7 @@
   },
   "peerDependencies": {
     "fumadocs-core": "^16.0.0",
-    "react": "^19.0.0",
-    "zod": "^4.4.3"
+    "react": "^19.0.0"
   },
   "devDependencies": {
     "@size-limit/file": "^11.2.0",
@@ -59,8 +58,7 @@
     "size-limit": "^11.2.0",
     "tsdown": "^0.22.14",
     "typescript": "^5.9.3",
-    "vitest": "^3.2.4",
-    "zod": "^4.4.3"
+    "vitest": "^3.2.4"
   },
   "engines": {
     "node": ">=20"

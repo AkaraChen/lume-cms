@@ -5,7 +5,6 @@ import { createElement, type ReactElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it } from 'vitest';
 import * as v from 'valibot';
-import { z } from 'zod';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import { CompileCache, compileContent, serializeCompiledContent } from '../src/compile.js';
 import { defaultMetaSchema, defaultPageSchema } from '../src/config.js';
@@ -266,7 +265,7 @@ pnpm add lume-cms
     expect(source.getPageTree()).toBeDefined();
   });
 
-  it('uses the official page schema while keeping draft and slug private', async () => {
+  it('uses the Fumadocs-compatible page schema while keeping draft and slug private', async () => {
     const cwd = await fixture({
       'content/page.mdx': `---
 title: Official page
@@ -296,7 +295,7 @@ Body`,
     });
   });
 
-  it('supports Zod-style extension and arbitrary Standard Schema replacement', async () => {
+  it('supports Valibot extension and arbitrary Standard Schema replacement', async () => {
     const cwd = await fixture({
       'content/meta.json': '{"title":"Docs","badge":"new"}',
       'content/page.md': '---\ntitle: Extended\ncategory: docs\n---\nBody',
@@ -306,8 +305,8 @@ Body`,
       write: false,
       config: {
         collections: { default: {
-          schema: defaultPageSchema.extend({ category: z.literal('docs') }),
-          metaSchema: defaultMetaSchema.extend({ badge: z.string() }),
+          schema: v.object({ ...defaultPageSchema.entries, category: v.literal('docs') }),
+          metaSchema: v.object({ ...defaultMetaSchema.entries, badge: v.string() }),
         } },
       },
     });
@@ -328,13 +327,14 @@ Body`,
     expect(replaced.collections.default!.entries[0]).toMatchObject({ draft: true, slug: ['private', 'path'] });
   });
 
-  it('rejects Zod defaults and transforms that reintroduce private page fields', async () => {
+  it('rejects Valibot defaults and transforms that reintroduce private page fields', async () => {
     const cwd = await fixture({
       'content/page.md': '---\ntitle: Page\ndraft: false\nslug: original/path\n---\nBody',
     });
-    const schema = defaultPageSchema.extend({
-      draft: z.boolean().default(true),
-      slug: z.string().default('seed').transform(() => 'leak'),
+    const schema = v.object({
+      ...defaultPageSchema.entries,
+      draft: v.optional(v.boolean(), true),
+      slug: v.pipe(v.optional(v.string(), 'seed'), v.transform(() => 'leak')),
     });
 
     await expect(compileContent({ cwd, write: false, config: { collections: { default: { schema } } } }))
@@ -424,7 +424,7 @@ Body`,
       .rejects.toThrow(/content\/meta\.json: invalid meta\.json/);
   });
 
-  it('rejects values outside the official schemas and reserved private field types', async () => {
+  it('rejects values outside the default schemas and reserved private field types', async () => {
     const invalidPage = await fixture({
       'content/page.md': '---\ntitle: Page\nfull: wide\n---\nBody',
     });
