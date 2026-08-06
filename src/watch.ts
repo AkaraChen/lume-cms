@@ -1,6 +1,12 @@
 import path from 'node:path';
 import { watch, type FSWatcher } from 'chokidar';
-import { CompileCache, compileContent, type CompileStats } from './compile.js';
+import {
+  CompileCache,
+  compileContent,
+  resolveCollections,
+  type CompileStats,
+  type ResolvedCollection,
+} from './compile.js';
 import { loadLumeConfig } from './config.js';
 import type { CompiledContent } from './types.js';
 
@@ -44,16 +50,41 @@ export async function watchContent(options: WatchContentOptions = {}): Promise<C
   let closed = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let buildChain = Promise.resolve<WatchBuildResult | undefined>(undefined);
+  let watchedRoots = new Set<string>();
+
+  function externalRoots(collections: readonly ResolvedCollection[]) {
+    return new Set(collections.map((collection) => collection.root).filter((root) => {
+      const relative = path.relative(cwd, root);
+      return relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative);
+    }));
+  }
+
+  async function updateWatchTargets(collections: readonly ResolvedCollection[], output: string) {
+    const nextRoots = externalRoots(collections);
+    await Promise.all([...watchedRoots]
+      .filter((root) => !nextRoots.has(root))
+      .map((root) => watcher.unwatch(root)));
+    for (const root of nextRoots) {
+      if (!watchedRoots.has(root)) watcher.add(root);
+    }
+    watchedRoots = nextRoots;
+    outputPaths.clear();
+    outputPaths.add(output);
+  }
 
   async function build(): Promise<WatchBuildResult | undefined> {
     if (closed) return;
     try {
       const config = await loadLumeConfig(cwd);
-      outputPaths.add(path.resolve(cwd, config.output ?? 'content.generated.json'));
-      for (const collection of Object.values(config.collections ?? { default: {} })) {
-        watcher.add(path.resolve(cwd, collection.root ?? 'content'));
-      }
-      const content = await compileContent({ cwd, config, cache, strict: options.strict });
+      const collections = resolveCollections(cwd, config);
+      await updateWatchTargets(collections, path.resolve(cwd, config.output ?? 'content.generated.json'));
+      const content = await compileContent({
+        cwd,
+        config,
+        resolvedCollections: collections,
+        cache,
+        strict: options.strict,
+      });
       const result = { content, stats: { ...cache.stats } };
       await options.onBuild?.(result);
       return result;
@@ -76,7 +107,18 @@ export async function watchContent(options: WatchContentOptions = {}): Promise<C
     }, debounceMs);
   }
 
-  watcher.on('all', scheduleBuild);
+  function isCurrentWatchTarget(watchedPath: string) {
+    const absolutePath = path.resolve(watchedPath);
+    const relative = path.relative(cwd, absolutePath);
+    if (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)) return true;
+    return [...watchedRoots].some((root) => (
+      absolutePath === root || absolutePath.startsWith(`${root}${path.sep}`)
+    ));
+  }
+
+  watcher.on('all', (_event, watchedPath) => {
+    if (isCurrentWatchTarget(watchedPath)) scheduleBuild();
+  });
   watcher.on('error', (error) => { void options.onError?.(error); });
   await Promise.all([ready, enqueueBuild()]);
 

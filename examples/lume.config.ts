@@ -6,12 +6,12 @@ export default defineConfig({
     docs: {
       baseUrl: '/docs',
       root: 'content/docs',
-      include: ['content/docs/**/*.{md,mdx}'],
+      include: ['**/*.{md,mdx}'],
     },
     blog: {
       baseUrl: '/blog',
       root: 'content/blog',
-      include: ['content/blog/**/*.{md,mdx}'],
+      include: ['**/*.{md,mdx}'],
     },
   },
   plugins: [schedule()],

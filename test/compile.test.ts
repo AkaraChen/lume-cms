@@ -53,8 +53,8 @@ describe('compileContent', () => {
     });
     const config = {
       collections: {
-        docs: { root: 'content/docs', include: ['content/docs/**/*.mdx'], plugins: [] },
-        blog: { root: 'content/blog', include: ['content/blog/**/*.mdx'], plugins: [schedule()] },
+        docs: { root: 'content/docs', include: ['**/*.mdx'], plugins: [] },
+        blog: { root: 'content/blog', include: ['**/*.mdx'], plugins: [schedule()] },
       },
     };
     const one = await compileContent({ cwd, write: false, config });
@@ -76,8 +76,8 @@ describe('compileContent', () => {
       write: false,
       config: {
         collections: {
-          docs: { include: ['content/**/*.mdx'] },
-          blog: { include: ['content/shared.mdx'] },
+          docs: { include: ['**/*.mdx'] },
+          blog: { include: ['shared.mdx'] },
         },
       },
     })).rejects.toThrow(/both collections "blog" and "docs"|both collections "docs" and "blog"/);
@@ -250,7 +250,7 @@ pnpm add lume-cms
     const result = await compileContent({
       cwd,
       write: false,
-      config: { collections: { default: { root: 'content/docs', include: ['content/docs/**/*.mdx'] } } },
+      config: { collections: { default: { root: 'content/docs', include: ['**/*.mdx'] } } },
     });
     expect(result.collections.default!.entries[0]).toMatchObject({ slug: [], path: 'index.mdx' });
     expect(result.collections.default!.entries[0]?.body.structuredData.headings[0]?.content).toBe('Searchable heading');
@@ -371,7 +371,7 @@ Body`,
       'docs/nested/meta.json': '{"title":"Nested"}',
       'docs/nested/page.mdx': '---\ntitle: Nested page\n---\nNested',
     });
-    const config = { collections: { default: { root: 'docs', include: ['docs/**/*'] } } };
+    const config = { collections: { default: { root: 'docs', include: ['**/*'] } } };
     const one = await compileContent({ cwd, write: false, config });
     const two = await compileContent({ cwd, write: false, config });
 
@@ -392,6 +392,25 @@ Body`,
       { path: 'nested/meta.json', data: { title: 'Nested' } },
     ]);
     expect(serializeCompiledContent(one)).toBe(serializeCompiledContent(two));
+  });
+
+  it('resolves include and exclude globs relative to each collection root', async () => {
+    const cwd = await fixture({
+      'docs/keep.md': '---\ntitle: Keep\n---\nKeep',
+      'docs/skip.md': '---\ntitle: Skip\n---\nSkip',
+      'outside.md': '---\ntitle: Outside\n---\nOutside',
+    });
+    const content = await compileContent({
+      cwd,
+      write: false,
+      config: {
+        collections: {
+          default: { root: 'docs', include: ['*.md'], exclude: ['skip.md'] },
+        },
+      },
+    });
+
+    expect(content.collections.default?.entries.map((entry) => entry.path)).toEqual(['keep.md']);
   });
 
   it('reports malformed meta.json with its source path', async () => {
@@ -448,7 +467,7 @@ Body`,
   it('loads lume.config.ts through c12 and writes the configured output', async () => {
     const cwd = await fixture({
       'articles/page.md': '---\ntitle: Page\n---\nBody',
-      'lume.config.ts': "export default { collections: { default: { root: 'articles', include: ['articles/**/*.md'] } }, output: 'out.json' }",
+      'lume.config.ts': "export default { collections: { default: { root: 'articles', include: ['**/*.md'] } }, output: 'out.json' }",
     });
     await compileContent({ cwd });
     const output = JSON.parse(await readFile(path.join(cwd, 'out.json'), 'utf8'));

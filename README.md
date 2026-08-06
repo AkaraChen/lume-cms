@@ -19,12 +19,12 @@ export default defineConfig({
     docs: {
       baseUrl: '/docs',
       root: 'content/docs',
-      include: ['content/docs/**/*.{md,mdx}'],
+      include: ['**/*.{md,mdx}'],
     },
     blog: {
       baseUrl: '/blog',
       root: 'content/blog',
-      include: ['content/blog/**/*.{md,mdx}'],
+      include: ['**/*.{md,mdx}'],
     },
   },
   plugins: [schedule()],
@@ -32,7 +32,7 @@ export default defineConfig({
 });
 ```
 
-Each collection owns its root, globs, schema, public `baseUrl`, and optional plugin list. Top-level `plugins` are defaults for collections that omit `plugins`. A source file may belong to only one collection. Omitting `collections` creates one collection named `default`. Schema-version 2 JSON must be rebuilt; the runtime intentionally does not guess a migration.
+Each collection owns its root, root-relative globs, schema, public `baseUrl`, and optional plugin list. Top-level `plugins` are defaults for collections that omit `plugins`. A source file may belong to only one collection. Omitting `collections` creates one collection named `default`. Schema-version 2 JSON must be rebuilt; the runtime intentionally does not guess a migration.
 
 With no schema override, lume-cms imports Fumadocs' locked `pageSchema` and `metaSchema` directly. The configuration accepts the Standard Schema interface, so Valibot 1.x, Zod 4, and other conforming implementations can replace them without an adapter. Plugin-owned fields such as `publishDate` stay out of public page data. Each collection persists its normalized `baseUrl`, so its reference validation and runtime Fumadocs loader cannot drift.
 
