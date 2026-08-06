@@ -158,9 +158,7 @@ function bodyComponent(body: CompiledBody): BodyComponent {
 }
 
 function assertCompiledContent(content: CompiledContent) {
-  if (content.schemaVersion !== 3 || !content.collections || typeof content.collections !== 'object') {
-    throw new TypeError('Unsupported lume-cms compiled content schema');
-  }
+  if (content.schemaVersion !== 3) throw new TypeError('Unsupported lume-cms compiled content schema');
 }
 
 function assertPluginMatch(compiled: CompiledCollection, plugins: readonly AnyLumePlugin[], collectionName: string) {

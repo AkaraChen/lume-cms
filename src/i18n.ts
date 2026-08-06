@@ -9,33 +9,21 @@ export interface CompiledI18nConfig {
   hideLocale: 'always' | 'default-locale' | 'never';
 }
 
+/** `parser`/`hideLocale` are literal unions on `I18nConfig`; only cross-field facts need checking. */
 export function normalizeI18n(config: I18nConfig): CompiledI18nConfig {
+  const { defaultLanguage, parser = 'dot', hideLocale = 'never' } = config;
   const languages = [...config.languages];
-  if (
-    languages.length === 0
-    || languages.some((language) => typeof language !== 'string' || language.length === 0)
-    || new Set(languages).size !== languages.length
-  ) {
+  const fallbackLanguage = config.fallbackLanguage === undefined ? defaultLanguage : config.fallbackLanguage;
+  if (languages.length === 0 || languages.some((language) => !language) || new Set(languages).size !== languages.length) {
     throw new TypeError('i18n.languages must contain unique non-empty language codes');
   }
-  if (!languages.includes(config.defaultLanguage)) {
+  if (!languages.includes(defaultLanguage)) {
     throw new TypeError('i18n.defaultLanguage must be included in i18n.languages');
   }
-  const parser = config.parser ?? 'dot';
-  if (parser !== 'dot' && parser !== 'dir' && parser !== 'none') {
-    throw new TypeError('i18n.parser must be "dot", "dir", or "none"');
-  }
-  const fallbackLanguage = config.fallbackLanguage === undefined
-    ? config.defaultLanguage
-    : config.fallbackLanguage;
   if (fallbackLanguage !== null && !languages.includes(fallbackLanguage)) {
     throw new TypeError('i18n.fallbackLanguage must be null or included in i18n.languages');
   }
-  const hideLocale = config.hideLocale ?? 'never';
-  if (hideLocale !== 'always' && hideLocale !== 'default-locale' && hideLocale !== 'never') {
-    throw new TypeError('i18n.hideLocale must be "always", "default-locale", or "never"');
-  }
-  return { languages, defaultLanguage: config.defaultLanguage, parser, fallbackLanguage, hideLocale };
+  return { languages, defaultLanguage, parser, fallbackLanguage, hideLocale };
 }
 
 export function parseI18nPath(filePath: string, i18n?: CompiledI18nConfig) {

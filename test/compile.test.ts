@@ -452,6 +452,18 @@ Body`,
     const cwd = await fixture({ 'content/date.md': '---\ntitle: Date\npublishDate: 2026-09-01\n---\nBody' });
     await expect(compileContent({ cwd, write: false, config: configWithPlugins([schedule()]) }))
       .rejects.toThrow(/content\/date\.md: invalid publishDate/);
+
+    // A calendar-impossible date used to roll over silently; it is now rejected.
+    const rollover = await fixture({ 'content/date.md': '---\ntitle: Date\npublishDate: 2026-02-31T00:00:00Z\n---\nBody' });
+    await expect(compileContent({ cwd: rollover, write: false, config: configWithPlugins([schedule()]) }))
+      .rejects.toThrow(/content\/date\.md: invalid publishDate/);
+  });
+
+  it('accepts an offset date-time without seconds', async () => {
+    const cwd = await fixture({ 'content/date.md': '---\ntitle: Date\npublishDate: 2026-09-01T10:00Z\n---\nBody' });
+    const content = await compileContent({ cwd, write: false, config: configWithPlugins([schedule()]) });
+    expect((content.collections.default!.entries[0]?.ext.schedule as { publishAtMs: number }).publishAtMs)
+      .toBe(Date.parse('2026-09-01T10:00Z'));
   });
 
   it('normalizes equivalent timezone instants and produces deterministic bytes', async () => {
