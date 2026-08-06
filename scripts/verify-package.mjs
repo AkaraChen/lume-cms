@@ -49,8 +49,8 @@ const manifest = JSON.parse(readFileSync('package.json', 'utf8'));
 if (manifest.peerDependencies?.zod === undefined || manifest.dependencies?.zod !== undefined) {
   throw new Error('Zod must be published as a peer dependency');
 }
-if (manifest.dependencies?.valibot === undefined) {
-  throw new Error('Valibot must be published as a regular dependency');
+if (manifest.dependencies?.valibot !== undefined) {
+  throw new Error('Valibot must stay a dev-only dependency; schedule validates with the Zod peer');
 }
 if (manifest.dependencies?.c12 === undefined) {
   throw new Error('c12 must be published as a regular dependency');
@@ -74,8 +74,8 @@ if (runtimeBundle.includes('publishAtMs')) {
 if (!/from ["']zod["']/.test(configBundle)) {
   throw new Error('The config entry must keep Zod external');
 }
-if (/from ["']zod["']/.test(runtimeBundle)) {
-  throw new Error('The core runtime entry must not import Zod');
+if (!publishedBundles.some((bundle) => /from ["']zod\/mini["']/.test(bundle))) {
+  throw new Error('The published chunks must keep Zod Mini external');
 }
 if (!publishedBundles.some((bundle) => /from ["']c12["']/.test(bundle))) {
   throw new Error('The published CLI chunks must keep c12 external');

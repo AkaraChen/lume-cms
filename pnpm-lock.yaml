@@ -26,9 +26,6 @@ importers:
       server-only:
         specifier: ^0.0.1
         version: 0.0.1
-      valibot:
-        specifier: ^1.1.0
-        version: 1.4.2(typescript@5.9.3)
     devDependencies:
       '@size-limit/file':
         specifier: ^11.2.0
@@ -63,6 +60,9 @@ importers:
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
+      valibot:
+        specifier: ^1.1.0
+        version: 1.4.2(typescript@5.9.3)
       vitest:
         specifier: ^3.2.4
         version: 3.2.7(@types/debug@4.1.13)(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(yaml@2.9.0)
