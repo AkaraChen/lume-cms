@@ -1,4 +1,4 @@
-import { parseArgs } from 'node:util';
+import { cli } from 'cleye';
 
 export const CLI_USAGE = 'Usage: lume-cms build [--watch] [--strict]';
 
@@ -9,40 +9,42 @@ export interface CliOptions {
 }
 
 export function parseCliArgs(argv: string[]): CliOptions {
-  const parsed = (() => {
-    try {
-      return parseArgs({
-        args: argv,
-        options: {
-          watch: { type: 'boolean' },
-          strict: { type: 'boolean' },
+  // help:false keeps this pure (no process.exit on --help).
+  const parsed = cli(
+    {
+      name: 'lume-cms',
+      parameters: ['[command]'],
+      flags: {
+        watch: {
+          type: Boolean,
+          description: 'Watch content files and rebuild on change',
         },
-        allowPositionals: true,
-        strict: true,
-        tokens: true,
-      });
-    } catch {
-      throw new Error(CLI_USAGE);
-    }
-  })();
+        strict: {
+          type: Boolean,
+          description: 'Fail the build when content diagnostics are found',
+        },
+      },
+      help: false,
+    },
+    undefined,
+    argv,
+  );
 
-  const seenOptions = new Set<string>();
-  for (const token of parsed.tokens) {
-    if (token.kind !== 'option') continue;
-    if (seenOptions.has(token.name)) throw new Error(CLI_USAGE);
-    seenOptions.add(token.name);
-  }
+  const { command } = parsed._;
+  const endOfFlags = parsed._['--'];
+  const invalid =
+    Object.keys(parsed.unknownFlags).length > 0
+    || (command !== undefined && command !== 'build')
+    || parsed._.length > 1
+    || endOfFlags.length > 0;
 
-  if (
-    parsed.positionals.length > 1
-    || (parsed.positionals.length === 1 && parsed.positionals[0] !== 'build')
-  ) {
+  if (invalid) {
     throw new Error(CLI_USAGE);
   }
 
   return {
     command: 'build',
-    watch: parsed.values.watch ?? false,
-    strict: parsed.values.strict ?? false,
+    watch: parsed.flags.watch ?? false,
+    strict: parsed.flags.strict ?? false,
   };
 }

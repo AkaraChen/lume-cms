@@ -41,6 +41,7 @@
     "@standard-schema/spec": "^1.1.0",
     "c12": "^3.3.3",
     "chokidar": "^4.0.3",
+    "cleye": "^2.6.0",
     "fast-glob": "^3.3.3",
     "server-only": "^0.0.1"
   },
