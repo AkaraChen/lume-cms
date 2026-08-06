@@ -29,9 +29,6 @@ importers:
       valibot:
         specifier: ^1.1.0
         version: 1.4.2(typescript@5.9.3)
-      zod:
-        specifier: ^4.4.3
-        version: 4.4.3
     devDependencies:
       '@size-limit/file':
         specifier: ^11.2.0
@@ -66,6 +63,9 @@ importers:
       vitest:
         specifier: ^3.2.4
         version: 3.2.7(@types/debug@4.1.13)(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(yaml@2.9.0)
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
 
   examples:
     dependencies:

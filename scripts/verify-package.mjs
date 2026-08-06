@@ -45,6 +45,14 @@ function waitForExit(child, timeoutMs = 5_000) {
   });
 }
 
+const manifest = JSON.parse(readFileSync('package.json', 'utf8'));
+if (manifest.peerDependencies?.zod === undefined || manifest.dependencies?.zod !== undefined) {
+  throw new Error('Zod must be published as a peer dependency');
+}
+if (manifest.dependencies?.c12 === undefined) {
+  throw new Error('c12 must be published as a regular dependency');
+}
+
 const packed = JSON.parse(execFileSync('npm', ['pack', '--dry-run', '--json'], { encoding: 'utf8' }));
 const files = new Set(packed[0]?.files?.map((file) => file.path));
 if (!files.has('bin/lume-cms.mjs')) throw new Error('Published package is missing its stable bin entry');
@@ -54,6 +62,7 @@ if (!files.has('dist/schedule.mjs') || !files.has('dist/schedule.d.mts')) {
 }
 const runtimeBundle = readFileSync('dist/index.mjs', 'utf8');
 const configBundle = readFileSync('dist/config.mjs', 'utf8');
+const cliBundle = readFileSync('dist/cli.mjs', 'utf8');
 if (runtimeBundle.includes('publishAtMs')) {
   throw new Error('The core runtime bundle statically includes schedule implementation details');
 }
@@ -62,6 +71,9 @@ if (!/from ["']zod["']/.test(configBundle)) {
 }
 if (/from ["']zod["']/.test(runtimeBundle)) {
   throw new Error('The core runtime entry must not import Zod');
+}
+if (!/from ["']c12["']/.test(cliBundle)) {
+  throw new Error('The CLI entry must keep c12 external');
 }
 execFileSync('pnpm', [
   'exec',
