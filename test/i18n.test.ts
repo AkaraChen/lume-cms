@@ -1,9 +1,9 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { compileContent, serializeCompiledContent } from '../src/compile.js';
-import { defineI18n } from '../src/config.js';
+import { collection, defineI18n } from '../src/config.js';
 import { createFumadocsSource } from '../src/index.js';
 import { schedule } from '../src/schedule.js';
 
@@ -20,6 +20,7 @@ async function fixture(files: Record<string, string>) {
 }
 
 afterEach(async () => {
+  vi.useRealTimers();
   await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
 
@@ -49,7 +50,7 @@ describe('Fumadocs i18n source contract', () => {
       cwd,
       write: false,
       strict: true,
-      config: { collections: { default: { baseUrl: '/docs', i18n } }, plugins: [schedule()] },
+      config: { collections: { default: { baseUrl: '/docs', i18n, plugins: [schedule()] } } },
     });
     const compiled = content.collections.default!;
 
@@ -73,14 +74,13 @@ describe('Fumadocs i18n source contract', () => {
       cwd,
       write: false,
       strict: true,
-      config: { collections: { default: { baseUrl: '/docs', i18n } }, plugins: [schedule()] },
+      config: { collections: { default: { baseUrl: '/docs', i18n, plugins: [schedule()] } } },
     })));
 
-    let now = 999;
+    vi.useFakeTimers();
+    vi.setSystemTime(999);
     const factory = createFumadocsSource(content, {
-      i18n,
-      now: () => new Date(now),
-      plugins: [schedule()],
+      collections: { default: { i18n, plugins: [schedule()] } },
     });
     const before = await factory.getSource();
     expect(before.getLanguages().map(({ language }) => language)).toEqual(['en', 'zh']);
@@ -116,7 +116,7 @@ describe('Fumadocs i18n source contract', () => {
     expect(preview.getPage(['shared-draft'], 'zh')).toMatchObject({ locale: 'zh', data: { title: 'Shared draft' } });
     expect(before.getPage(['release'], 'zh')?.data.title).toBe('English release');
 
-    now = 1_000;
+    vi.setSystemTime(1_000);
     const after = await factory.getSource();
     expect(after.getPage(['secret'], 'zh')).toMatchObject({ locale: 'zh', data: { title: '定时秘密' } });
     expect(after.getPage(['release'], 'zh')?.data.title).toBe('中文发布');
@@ -125,10 +125,11 @@ describe('Fumadocs i18n source contract', () => {
     expect(JSON.stringify(after.getPageTree('zh'))).toContain('/zh/docs/secret');
 
     const customized = await createFumadocsSource(content, {
-      now: () => new Date(now),
-      plugins: [schedule()],
-      url: (slugs, locale) => `/${locale}/knowledge/${slugs.join('/')}`,
-      slugs: (file) => file.path.startsWith('guide/setup.') ? ['custom-setup'] : undefined,
+      collections: { default: collection({
+        plugins: [schedule()],
+        url: (slugs, locale) => `/${locale}/knowledge/${slugs.join('/')}`,
+        slugs: (file) => file.path.startsWith('guide/setup.') ? ['custom-setup'] : undefined,
+      }) },
     }).getSource();
     expect(customized.getPage(['custom-setup'], 'en')?.url).toBe('/en/knowledge/custom-setup');
     expect(customized.getPage(['custom-setup'], 'zh')?.url).toBe('/zh/knowledge/custom-setup');
@@ -210,7 +211,7 @@ describe('Fumadocs i18n source contract', () => {
     });
 
     expect(() => createFumadocsSource(content, {
-      i18n: defineI18n({ languages: ['en', 'zh'], defaultLanguage: 'zh' }),
+      collections: { default: { i18n: defineI18n({ languages: ['en', 'zh'], defaultLanguage: 'zh' }) } },
     })).toThrow(/Runtime i18n config does not match compiled i18n config/);
   });
 
@@ -223,7 +224,7 @@ describe('Fumadocs i18n source contract', () => {
     expect(content.collections.default?.i18n).toBeUndefined();
     expect(content.collections.default?.entries[0]).toMatchObject({ locale: undefined, slug: ['page.zh'] });
     expect(() => createFumadocsSource(content, {
-      i18n: defineI18n({ languages: ['en', 'zh'], defaultLanguage: 'en', parser: 'dot' }),
+      collections: { default: { i18n: defineI18n({ languages: ['en', 'zh'], defaultLanguage: 'en', parser: 'dot' }) } },
     })).toThrow(/Runtime i18n requires compiled i18n config/);
   });
 

@@ -1,13 +1,13 @@
 import type { StandardSchemaV1 } from '@standard-schema/spec';
-import type { LumeConfig } from './config.js';
+import type { CollectionConfig, LumeConfig } from './config.js';
 import type { CompiledEntry } from './types.js';
 
-export interface PluginContext {
+export interface BuildPluginContext {
   cwd: string;
   config: LumeConfig;
 }
 
-export interface CompileEntryContext {
+export interface BuildEntryContext {
   sourcePath: string;
   contentPath: string;
   slug: string[];
@@ -17,7 +17,7 @@ export interface CompileEntryContext {
   rawFrontmatter: Record<string, unknown>;
 }
 
-export interface CompileCollectionContext extends PluginContext {
+export interface BuildCollectionContext extends BuildPluginContext {
   entries: CompiledEntry[];
 }
 
@@ -131,24 +131,50 @@ export function defineTimeGate(options: TimeGateOptions): RuntimeHooks {
   };
 }
 
-export interface LumePlugin<Frontmatter extends object = object, Data extends object = object> {
-  id: string;
-  frontmatter?: {
-    schema: StandardSchemaV1<unknown, Record<string, unknown>>;
-  };
-  compile?: {
-    /** Stable options/version key for invalidating incremental compilation. */
-    cacheKey?: string;
-    setup?(context: PluginContext, next: Next<Promise<void>>): void | Promise<void>;
-    entry?(context: CompileEntryContext): unknown | Promise<unknown>;
-    collection?(context: CompileCollectionContext, next: Next<Promise<void>>): void | Promise<void>;
-  };
-  runtime?: RuntimeHooks;
+const buildPluginBrand: unique symbol = Symbol.for('lume-cms.build-plugin') as never;
+const runtimePluginBrand: unique symbol = Symbol.for('lume-cms.runtime-plugin') as never;
+
+interface PluginInference<Frontmatter extends object, Data extends object> {
   /** Type-only carrier; plugin implementations must not set this at runtime. */
   readonly $Infer?: { frontmatter: Frontmatter; data: Data };
 }
 
-export type AnyLumePlugin = LumePlugin<any, any>;
+export interface LumeBuildPlugin<Frontmatter extends object = object, Data extends object = object>
+  extends PluginInference<Frontmatter, Data> {
+  readonly [buildPluginBrand]: true;
+  id: string;
+  frontmatter?: {
+    schema: StandardSchemaV1<unknown, Record<string, unknown>>;
+  };
+  build?: {
+    /** Stable options/version key for invalidating incremental compilation. */
+    cacheKey?: string;
+    setup?(context: BuildPluginContext, next: Next<Promise<void>>): void | Promise<void>;
+    entry?(context: BuildEntryContext): unknown | Promise<unknown>;
+    collection?(context: BuildCollectionContext, next: Next<Promise<void>>): void | Promise<void>;
+  };
+}
+
+export interface LumeRuntimePlugin<Frontmatter extends object = object, Data extends object = object>
+  extends PluginInference<Frontmatter, Data> {
+  readonly [runtimePluginBrand]: true;
+  id: string;
+  runtime: RuntimeHooks;
+}
+
+export type LumePlugin<Frontmatter extends object = object, Data extends object = object> =
+  LumeBuildPlugin<Frontmatter, Data> & LumeRuntimePlugin<Frontmatter, Data>;
+
+export type AnyBuildPlugin = LumeBuildPlugin<any, any>;
+export type AnyRuntimePlugin = LumeRuntimePlugin<any, any>;
+export type AnyLumePlugin = AnyBuildPlugin | AnyRuntimePlugin;
+
+/** Preserve each collection's plugin tuple for runtime page-data inference. */
+export function collection<const Plugins extends readonly AnyLumePlugin[] = []>(
+  config: CollectionConfig<Plugins>,
+): CollectionConfig<Plugins> {
+  return config;
+}
 
 type UnionToIntersection<Union> =
   (Union extends unknown ? (value: Union) => void : never) extends (value: infer Intersection) => void
@@ -160,8 +186,42 @@ export type InferPluginData<Plugins extends readonly AnyLumePlugin[]> =
     ? Record<never, never>
     : UnionToIntersection<NonNullable<Plugins[number]['$Infer']>['data']>;
 
-export function definePlugin<const Plugin extends AnyLumePlugin>(plugin: Plugin): Plugin {
-  return plugin;
+export interface BuildPluginDefinition<Frontmatter extends object = object, Data extends object = object>
+  extends PluginInference<Frontmatter, Data> {
+  id: string;
+  frontmatter?: LumeBuildPlugin<Frontmatter, Data>['frontmatter'];
+  build?: LumeBuildPlugin<Frontmatter, Data>['build'];
+}
+
+export interface RuntimePluginDefinition<Frontmatter extends object = object, Data extends object = object>
+  extends PluginInference<Frontmatter, Data> {
+  id: string;
+  runtime: RuntimeHooks;
+}
+
+export function defineBuildPlugin<const Plugin extends BuildPluginDefinition>(plugin: Plugin): Plugin & AnyBuildPlugin {
+  return Object.assign(plugin, { [buildPluginBrand]: true as const });
+}
+
+export function defineRuntimePlugin<const Plugin extends RuntimePluginDefinition>(plugin: Plugin): Plugin & AnyRuntimePlugin {
+  return Object.assign(plugin, { [runtimePluginBrand]: true as const });
+}
+
+export function definePlugin<Frontmatter extends object = object, Data extends object = object>(
+  plugin: BuildPluginDefinition<Frontmatter, Data> & RuntimePluginDefinition<Frontmatter, Data>,
+): LumePlugin<Frontmatter, Data> {
+  return Object.assign(plugin, {
+    [buildPluginBrand]: true as const,
+    [runtimePluginBrand]: true as const,
+  });
+}
+
+export function isBuildPlugin(plugin: AnyLumePlugin): plugin is AnyBuildPlugin {
+  return buildPluginBrand in plugin;
+}
+
+export function isRuntimePlugin(plugin: AnyLumePlugin): plugin is AnyRuntimePlugin {
+  return runtimePluginBrand in plugin;
 }
 
 export function assertPluginIds(plugins: readonly AnyLumePlugin[]): void {

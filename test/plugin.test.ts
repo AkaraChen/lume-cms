@@ -1,4 +1,4 @@
-import { describe, expect, expectTypeOf, it } from 'vitest';
+import { afterEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
 import { collection, createFumadocsSource, createFumadocsSources } from '../src/index.js';
 import {
   composeOnion,
@@ -17,6 +17,7 @@ function content(plugins: string[] = [], entries: CompiledEntry[] = []): Compile
 }
 
 describe('plugin runtime', () => {
+  afterEach(() => vi.useRealTimers());
   it('composes middleware outside-in and rejects repeated next calls', () => {
     const events: string[] = [];
     const layer = (name: string) => (_value: string, next: () => string) => {
@@ -44,8 +45,8 @@ describe('plugin runtime', () => {
   });
 
   it('fails fast when compile and runtime plugin lists differ in either direction', () => {
-    expect(() => createFumadocsSource(content(['schedule']))).toThrow(/compiled with plugin "schedule"/);
-    expect(() => createFumadocsSource(content(), { plugins: [schedule()] })).toThrow(/Runtime plugin "schedule"/);
+    expect(() => createFumadocsSource(content(['schedule']))).toThrow(/compiled with build plugin "schedule"/);
+    expect(() => createFumadocsSource(content(), { collections: { default: { plugins: [schedule()] } } })).toThrow(/Build plugin "schedule"/);
   });
 
   it('runs resolve, list, and deadline as outside-in middleware around shared cores', async () => {
@@ -76,7 +77,7 @@ describe('plugin runtime', () => {
       slug: ['page'], path: 'page.md', draft: false, data: { title: 'Page' }, ext: {}, body,
     };
     await createFumadocsSource(content(['a', 'b'], [entry]), {
-      plugins: [middleware('a'), middleware('b')],
+      collections: { default: { plugins: [middleware('a'), middleware('b')] } },
     }).getSource();
     expect(events).toEqual([
       'a:resolve:before', 'b:resolve:before', 'b:resolve:after', 'a:resolve:after',
@@ -100,14 +101,15 @@ describe('plugin runtime', () => {
     });
     const source = createFumadocsSource(content(['marker'], [{
       slug: ['hidden'], path: 'hidden.md', draft: false, data: { title: 'Hidden' }, ext: {}, body,
-    }]), { plugins: [marker] });
+    }]), { collections: { default: { plugins: [marker] } } });
     expect((await source.getSource()).getPages()).toHaveLength(0);
     expect((await source.getPreviewSource({ reveal: ['one'] })).getPages()).toHaveLength(0);
     expect((await source.getPreviewSource({ reveal: ['one', 'two'] })).getPages()).toHaveLength(1);
   });
 
   it('isolates runtime state per generation and protects the compiled artifact', async () => {
-    let now = 10;
+    vi.useFakeTimers();
+    vi.setSystemTime(10);
     let resolutions = 0;
     const compiledSnapshots: Readonly<CompiledEntry>[] = [];
     const original = {
@@ -134,10 +136,10 @@ describe('plugin runtime', () => {
       },
     });
     const source = createFumadocsSource(content(['gate'], [original]), {
-      now: () => new Date(now), plugins: [gate],
+      collections: { default: { plugins: [gate] } },
     });
     expect((await source.getSource()).getPages()).toHaveLength(0);
-    now = 20;
+    vi.setSystemTime(20);
     expect((await source.getSource()).getPages()).toHaveLength(1);
     expect(resolutions).toBe(2);
     expect(compiledSnapshots[1]).toBe(compiledSnapshots[0]);
@@ -149,7 +151,7 @@ describe('plugin runtime', () => {
       slug: ['page'], path: 'page.md', draft: false, data: { title: 'Page' }, ext: {}, body,
     };
     const incomplete = definePlugin({ id: 'incomplete', runtime: { timeDependent: true } });
-    expect(() => createFumadocsSource(content(['incomplete'], [entry]), { plugins: [incomplete] }))
+    expect(() => createFumadocsSource(content(['incomplete'], [entry]), { collections: { default: { plugins: [incomplete] } } }))
       .toThrow(/must provide a deadline/);
 
     const invalid = definePlugin({
@@ -160,13 +162,13 @@ describe('plugin runtime', () => {
         },
       },
     });
-    const source = createFumadocsSource(content(['invalid'], [entry]), { plugins: [invalid] });
+    const source = createFumadocsSource(content(['invalid'], [entry]), { collections: { default: { plugins: [invalid] } } });
     expect(() => source.getSource()).toThrow(/must return an entry array/);
   });
 
   it('rejects duplicate ids', () => {
     expect(() => createFumadocsSource(content(['schedule', 'schedule']), {
-      plugins: [schedule(), schedule()],
+      collections: { default: { plugins: [schedule(), schedule()] } },
     })).toThrow(/Duplicate lume-cms plugin id/);
   });
 
@@ -194,7 +196,7 @@ describe('plugin runtime', () => {
     const entries = ['z', 'hidden', 'a'].map((id) => ({
       slug: [id], path: `${id}.md`, draft: false, data: { title: id }, ext: {}, body,
     }));
-    const source = createFumadocsSource(content(['first', 'second'], entries), { plugins: [first, second] });
+    const source = createFumadocsSource(content(['first', 'second'], entries), { collections: { default: { plugins: [first, second] } } });
     expect((await source.getSource()).getPages().map((page) => page.slugs[0])).toEqual(['a', 'z']);
   });
 
@@ -203,7 +205,7 @@ describe('plugin runtime', () => {
     const source = createFumadocsSource(content(['schedule'], [{
       slug: ['page'], path: 'page.md', draft: false, data: { title: 'Page' },
       ext: { schedule: { publishDate: null, publishAtMs: null } }, body,
-    }]), { plugins: [scheduled] });
+    }]), { collections: { default: { plugins: [scheduled] } } });
     const page = (await source.getSource()).getPages()[0]!;
     expect(page.data.publishDate).toBeNull();
     expectTypeOf(page.data.publishDate).toEqualTypeOf<string | null>();
@@ -241,6 +243,8 @@ describe('plugin runtime', () => {
   });
 
   it('makes schedule ordering opt-in so meta and slug order remain authoritative by default', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(30);
     const entries = [
       {
         slug: ['a'], path: 'a.md', draft: false, data: { title: 'Older' },
@@ -252,14 +256,12 @@ describe('plugin runtime', () => {
       },
     ];
     const normal = createFumadocsSource(content(['schedule'], entries), {
-      now: () => new Date(30),
-      plugins: [schedule()],
+      collections: { default: { plugins: [schedule()] } },
     });
     expect((await normal.getSource()).getPages().map((page) => page.slugs[0])).toEqual(['a', 'z']);
 
     const blog = createFumadocsSource(content(['schedule'], entries), {
-      now: () => new Date(30),
-      plugins: [schedule({ sort: 'date-desc' })],
+      collections: { default: { plugins: [schedule({ sort: 'date-desc' })] } },
     });
     expect((await blog.getSource()).getPages().map((page) => page.slugs[0])).toEqual(['z', 'a']);
   });

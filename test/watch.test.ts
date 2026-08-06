@@ -13,13 +13,15 @@ async function fixture() {
   await mkdir(path.join(cwd, 'content'), { recursive: true });
   await writeFile(path.join(cwd, 'content/a.md'), '---\ntitle: A\n---\nA');
   await writeFile(path.join(cwd, 'content/b.md'), '---\ntitle: B\n---\nB');
-  await writeFile(path.join(cwd, 'plugin.ts'), `export default {
+  const configModule = new URL('../src/config.ts', import.meta.url).pathname;
+  await writeFile(path.join(cwd, 'plugin.ts'), `import { defineBuildPlugin } from ${JSON.stringify(configModule)};
+export default defineBuildPlugin({
   id: 'probe',
-  compile: { cacheKey: 'v1', entry() { return { version: 'v1' }; } },
-};
+  build: { cacheKey: 'v1', entry() { return { version: 'v1' }; } },
+});
 `);
   await writeFile(path.join(cwd, 'lume.config.ts'), `import plugin from './plugin';
-export default { collections: { default: { include: ['**/*.md'] } }, plugins: [plugin] };
+export default { collections: { default: { include: ['**/*.md'], plugins: [plugin] } } };
 `);
   return cwd;
 }
@@ -93,10 +95,12 @@ describe('watchContent', () => {
     ));
 
     previousBuilds = builds.length;
-    await writeFile(path.join(cwd, 'plugin.ts'), `export default {
+    const configModule = new URL('../src/config.ts', import.meta.url).pathname;
+    await writeFile(path.join(cwd, 'plugin.ts'), `import { defineBuildPlugin } from ${JSON.stringify(configModule)};
+export default defineBuildPlugin({
   id: 'probe',
-  compile: { cacheKey: 'v2', entry() { return { version: 'v2' }; } },
-};
+  build: { cacheKey: 'v2', entry() { return { version: 'v2' }; } },
+});
 `);
     const changedPlugin = await nextBuild(previousBuilds, (result) => result.content.collections.default!.entries.every(
       (item) => (item.ext.probe as { version: string }).version === 'v2',
@@ -105,7 +109,7 @@ describe('watchContent', () => {
 
     previousBuilds = builds.length;
     await writeFile(path.join(cwd, 'lume.config.ts'), `import plugin from './plugin';
-export default { collections: { default: { include: ['a.md'] } }, plugins: [plugin] };
+export default { collections: { default: { include: ['a.md'], plugins: [plugin] } } };
 `);
     const changedConfig = await nextBuild(previousBuilds, (result) => (
       result.content.collections.default?.entries.length === 1

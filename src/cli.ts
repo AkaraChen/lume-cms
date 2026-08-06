@@ -1,6 +1,4 @@
 #!/usr/bin/env node
-import { CompileDiagnosticsError, compileContent } from './compile.js';
-import { watchContent } from './watch.js';
 import type { CompileDiagnostic } from './types.js';
 
 function reportDiagnostics(diagnostics: CompileDiagnostic[]) {
@@ -11,7 +9,8 @@ function reportDiagnostics(diagnostics: CompileDiagnostic[]) {
 }
 
 function reportError(error: unknown) {
-  if (error instanceof CompileDiagnosticsError) reportDiagnostics(error.diagnostics);
+  const diagnostics = (error as { diagnostics?: unknown } | null)?.diagnostics;
+  if (Array.isArray(diagnostics)) reportDiagnostics(diagnostics as CompileDiagnostic[]);
   console.error(error instanceof Error ? error.message : error);
 }
 
@@ -29,6 +28,7 @@ async function main() {
   }
   const strict = uniqueFlags.has('--strict');
   if (uniqueFlags.has('--watch')) {
+    const { watchContent } = await import('./watch.js');
     const watcher = await watchContent({
       strict,
       onBuild({ content, stats }) {
@@ -41,12 +41,13 @@ async function main() {
       },
       onError: reportError,
     });
-    console.log('Watching for content and configuration changes.');
+    console.log('Watching for content changes.');
     const close = () => { void watcher.close(); };
     process.once('SIGINT', close);
     process.once('SIGTERM', close);
     return;
   }
+  const { compileContent } = await import('./compile.js');
   const content = await compileContent({ strict });
   reportDiagnostics(Object.values(content.collections).flatMap((collection) => collection.diagnostics ?? []));
   const counts = Object.entries(content.collections).map(([name, collection]) => `${name}: ${collection.entries.length}`);

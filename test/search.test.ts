@@ -1,7 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createFromSource, type AdvancedIndex } from 'fumadocs-core/search/server';
 import { createFumadocsSource } from '../src/index.js';
-import type { AnyLumePlugin, Next, ResolvedEntry, RuntimeContext } from '../src/plugin.js';
+import { defineRuntimePlugin, type Next, type ResolvedEntry, type RuntimeContext } from '../src/plugin.js';
 import { schedule } from '../src/schedule.js';
 import type { CompiledContent, CompiledEntry } from '../src/types.js';
 
@@ -52,9 +52,12 @@ function urls(results: Array<{ url: string }>): string[] {
 }
 
 describe('dynamic Fumadocs search contract', () => {
+  afterEach(() => vi.useRealTimers());
+
   it('re-indexes at a deadline and applies tag filters after the visibility boundary', async () => {
-    let now = 19;
-    const expiry: AnyLumePlugin = {
+    vi.useFakeTimers();
+    vi.setSystemTime(19);
+    const expiry = defineRuntimePlugin({
       id: 'expiry',
       runtime: {
         resolve(page: ResolvedEntry, _context: RuntimeContext, next: Next<void>) {
@@ -62,14 +65,14 @@ describe('dynamic Fumadocs search contract', () => {
           if ((page.compiled.ext.expiry as { expired: boolean }).expired) page.hide('expired');
         },
       },
-    };
+    });
     const content = {
       schemaVersion: 3,
       collections: {
         docs: {
           baseUrl: '/',
           i18n: undefined,
-          plugins: ['schedule', 'expiry'],
+          plugins: ['schedule'],
           entries: [
             entry('published', { publishAtMs: 10, tags: ['guide'] }),
             entry('scheduled', { publishAtMs: 20, tags: ['guide', 'release'] }),
@@ -81,8 +84,7 @@ describe('dynamic Fumadocs search contract', () => {
       },
     } satisfies CompiledContent;
     const factory = createFumadocsSource(content, {
-      now: () => new Date(now),
-      plugins: [schedule(), expiry],
+      collections: { docs: { plugins: [schedule(), expiry] } },
     });
     const search = createFromSource(factory.getSource, { buildIndex });
 
@@ -94,7 +96,7 @@ describe('dynamic Fumadocs search contract', () => {
     const tagged = await search.GET(new Request('https://example.com/api/search?query=searchable&tag=release'));
     expect(await tagged.json()).toEqual([]);
 
-    now = 20;
+    vi.setSystemTime(20);
     expect(urls(await search.search('scheduled'))).toEqual(['/scheduled']);
     const refreshed = await search.GET(new Request('https://example.com/api/search?query=searchable&tag=release'));
     expect(urls(await refreshed.json() as Array<{ url: string }>)).toEqual(['/scheduled']);
@@ -124,7 +126,7 @@ describe('dynamic Fumadocs search contract', () => {
         },
       },
     } satisfies CompiledContent;
-    const factory = createFumadocsSource(content);
+    const factory = createFumadocsSource(content, { collections: { docs: {} } });
     const search = createFromSource(factory.getSource, {
       buildIndex,
       localeMap: { en: 'english', zh: 'multilingual' },

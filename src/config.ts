@@ -1,27 +1,47 @@
-import { loadConfig } from 'c12';
-import { metaSchema as fumadocsMetaSchema, pageSchema as fumadocsPageSchema } from 'fumadocs-core/source/schema';
-import { z } from 'zod';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import type { I18nConfig } from 'fumadocs-core/i18n';
-import type { AnyLumePlugin } from './plugin.js';
+import { metaSchema as fumadocsMetaSchema, pageSchema as fumadocsPageSchema } from 'fumadocs-core/source/schema';
+import { z } from 'zod';
+import type {
+  ContentStorage,
+  ContentStorageMetaFile,
+  ContentStoragePageFile,
+  LoaderOptions,
+  MetaData,
+  PageData,
+} from 'fumadocs-core/source';
+import type { AnyLumePlugin, InferPluginData } from './plugin.js';
 
 export { defineI18n } from 'fumadocs-core/i18n';
 export type { I18nConfig } from 'fumadocs-core/i18n';
-export { definePlugin, defineTimeGate } from './plugin.js';
+export {
+  collection,
+  defineBuildPlugin,
+  definePlugin,
+  defineRuntimePlugin,
+  defineTimeGate,
+} from './plugin.js';
 export type {
+  AnyBuildPlugin,
   AnyLumePlugin,
-  CompileCollectionContext,
-  CompileEntryContext,
+  AnyRuntimePlugin,
+  BuildCollectionContext,
+  BuildEntryContext,
+  BuildPluginContext,
+  LumeBuildPlugin,
   LumePlugin,
+  LumeRuntimePlugin,
   Middleware,
   Next,
   PreviewContext,
   PreviewOptions,
+  ResolvedEntry,
   RuntimeContext,
   RuntimeHooks,
   TimeGateOptions,
-  ResolvedEntry,
 } from './plugin.js';
+
+export type ContentSchema = StandardSchemaV1<unknown, Record<string, unknown>>;
 
 /** The exact Fumadocs baseline, exported so Zod users can extend it directly. */
 export const officialPageSchema = fumadocsPageSchema;
@@ -32,12 +52,22 @@ export const defaultPageSchema = officialPageSchema.extend({
 });
 export const defaultMetaSchema = officialMetaSchema;
 
-export type ContentSchema = StandardSchemaV1<unknown, Record<string, unknown>>;
+type CollectionStorage<Plugins extends readonly AnyLumePlugin[]> = ContentStorage<
+  ContentStoragePageFile<undefined, PageData & InferPluginData<Plugins>>,
+  ContentStorageMetaFile<undefined, MetaData>
+>;
 
-export interface CollectionConfig {
+type CollectionLoaderOptions<Plugins extends readonly AnyLumePlugin[]> = LoaderOptions<
+  CollectionStorage<Plugins>,
+  I18nConfig | undefined
+>;
+
+export interface CollectionConfig<
+  Plugins extends readonly AnyLumePlugin[] = readonly AnyLumePlugin[],
+> {
   /** Public route prefix shared by reference validation and the Fumadocs loader. */
   baseUrl?: string;
-  /** The official Fumadocs i18n contract used by this collection at compile and runtime. */
+  /** The official Fumadocs i18n contract used at build and runtime. */
   i18n?: I18nConfig;
   /** Page globs relative to `root`. */
   include?: string[];
@@ -48,28 +78,23 @@ export interface CollectionConfig {
   schema?: ContentSchema;
   /** Defaults to Fumadocs metaSchema; replace or extend it with any Standard Schema. */
   metaSchema?: ContentSchema;
-  /** Overrides the top-level plugin defaults for this collection. */
-  plugins?: readonly AnyLumePlugin[];
+  /** Build/runtime capabilities owned by this collection. */
+  plugins?: Plugins;
+  /** Fumadocs runtime options consumed only by the source factory. */
+  url?: CollectionLoaderOptions<Plugins>['url'];
+  slugs?: CollectionLoaderOptions<Plugins>['slugs'];
+  pageTree?: Omit<NonNullable<CollectionLoaderOptions<Plugins>['pageTree']>, 'url'>;
+  icon?: CollectionLoaderOptions<Plugins>['icon'];
+  loaderPlugins?: CollectionLoaderOptions<Plugins>['plugins'];
 }
 
-export interface LumeConfig {
-  collections?: Record<string, CollectionConfig>;
+export interface LumeConfig<
+  Collections extends Record<string, CollectionConfig> = Record<string, CollectionConfig>,
+> {
+  collections?: Collections;
   output?: string;
-  /** Default plugins for collections that do not declare their own list. */
-  plugins?: readonly AnyLumePlugin[];
 }
 
-export function defineConfig<const T extends LumeConfig>(config: T): T {
+export function defineConfig<const Config extends LumeConfig>(config: Config): Config {
   return config;
-}
-
-export async function loadLumeConfig(cwd = process.cwd()): Promise<LumeConfig> {
-  const loaded = await loadConfig<LumeConfig>({
-    name: 'lume',
-    cwd,
-    configFile: 'lume.config',
-    defaults: {},
-    jitiOptions: { moduleCache: false },
-  });
-  return loaded.config;
 }

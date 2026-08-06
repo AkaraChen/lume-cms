@@ -7,13 +7,8 @@ import { frontmatter } from 'fumadocs-core/content/md/frontmatter';
 import { mdxPreset } from 'fumadocs-core/content/mdx/preset-runtime';
 import { defaultStringifier } from 'fumadocs-core/mdx-plugins/stringifier';
 import { getSlugs, PathUtils } from 'fumadocs-core/source';
-import {
-  defaultMetaSchema,
-  defaultPageSchema,
-  loadLumeConfig,
-  type ContentSchema,
-  type LumeConfig,
-} from './config.js';
+import { defaultMetaSchema, defaultPageSchema, type ContentSchema, type LumeConfig } from './config.js';
+import { loadLumeConfig } from './load-config.js';
 import type {
   CompiledBody,
   CompiledCollection,
@@ -25,10 +20,11 @@ import type {
 import {
   assertPluginIds,
   composeOnion,
-  type AnyLumePlugin,
-  type CompileCollectionContext,
+  isBuildPlugin,
+  type AnyBuildPlugin,
+  type BuildCollectionContext,
   type Next,
-  type PluginContext,
+  type BuildPluginContext,
 } from './plugin.js';
 import { normalizeBaseUrl } from './url.js';
 import { normalizeI18n, parseI18nPath, type CompiledI18nConfig } from './i18n.js';
@@ -283,14 +279,14 @@ export interface ResolvedCollection {
   i18n?: CompiledI18nConfig;
   schema: ContentSchema;
   metaSchema: ContentSchema;
-  plugins: readonly AnyLumePlugin[];
+  plugins: readonly AnyBuildPlugin[];
 }
 
 export function resolveCollections(cwd: string, config: LumeConfig): ResolvedCollection[] {
   const configured = normalizedCollections(config);
   return Object.keys(configured).sort().map((name) => {
     const definition = configured[name]!;
-    const plugins = definition.plugins ?? config.plugins ?? [];
+    const plugins = (definition.plugins ?? []).filter(isBuildPlugin);
     assertPluginIds(plugins);
     return {
       name,
@@ -392,8 +388,8 @@ type CompileMiddleware<Context> = (
 ) => Promise<void>;
 
 function collectCompileHooks<Context>(
-  plugins: readonly AnyLumePlugin[],
-  select: (plugin: AnyLumePlugin) => ((context: Context, next: Next<Promise<void>>) => void | Promise<void>) | undefined,
+  plugins: readonly AnyBuildPlugin[],
+  select: (plugin: AnyBuildPlugin) => ((context: Context, next: Next<Promise<void>>) => void | Promise<void>) | undefined,
 ): CompileMiddleware<Context>[] {
   const hooks: CompileMiddleware<Context>[] = [];
   for (const plugin of plugins) {
@@ -408,7 +404,7 @@ async function compileEntry(
   sourcePath: string,
   contentPath: string,
   schema: ContentSchema,
-  plugins: readonly AnyLumePlugin[],
+  plugins: readonly AnyBuildPlugin[],
   i18n?: CompiledI18nConfig,
 ): Promise<CompiledUnit> {
   const parsed = frontmatter(raw);
@@ -432,8 +428,8 @@ async function compileEntry(
       );
       for (const key of Object.keys(pluginFrontmatter)) delete data[key];
     }
-    if (plugin.compile?.entry) {
-      ext[plugin.id] = await plugin.compile.entry({
+    if (plugin.build?.entry) {
+      ext[plugin.id] = await plugin.build.entry({
         sourcePath,
         contentPath,
         slug,
@@ -464,10 +460,10 @@ export async function compileContent(options: CompileOptions = {}): Promise<Comp
   const resolvedCollections = options.resolvedCollections ?? resolveCollections(cwd, config);
   const files = await collectionFiles(cwd, resolvedCollections);
   const collections: Record<string, CompiledCollection> = {};
-  const fingerprint = digest('lume-cms-compile-cache-v2', JSON.stringify(stableValue({
-    collections: normalizedCollections(config),
-    plugins: config.plugins,
-  }, 'fingerprint')));
+  const fingerprint = digest(
+    'lume-cms-compile-cache-v3',
+    JSON.stringify(stableValue(normalizedCollections(config), 'fingerprint')),
+  );
   const cache = options.cache;
   cache?.prepare(fingerprint);
   const pluginContext = { cwd, config };
@@ -479,7 +475,7 @@ export async function compileContent(options: CompileOptions = {}): Promise<Comp
 
   for (const definition of resolvedCollections) {
     const { name, root: contentRoot, baseUrl, i18n, schema, metaSchema, plugins } = definition;
-    const setup = collectCompileHooks<PluginContext>(plugins, (plugin) => plugin.compile?.setup);
+    const setup = collectCompileHooks<BuildPluginContext>(plugins, (plugin) => plugin.build?.setup);
     await composeOnion(setup, async () => {})(pluginContext);
     const entries: CompiledEntry[] = [];
     const referenceEntries: ReferenceEntry[] = [];
@@ -520,9 +516,9 @@ export async function compileContent(options: CompileOptions = {}): Promise<Comp
       || a.path.localeCompare(b.path)
     ));
     assertUniqueSlugs(entries, i18n);
-    const collection = collectCompileHooks<CompileCollectionContext>(
+    const collection = collectCompileHooks<BuildCollectionContext>(
       plugins,
-      (plugin) => plugin.compile?.collection,
+      (plugin) => plugin.build?.collection,
     );
     await composeOnion(collection, async () => {})({ ...pluginContext, entries });
     const diagnostics = await validateReferences(cwd, referenceEntries, baseUrl, i18n);

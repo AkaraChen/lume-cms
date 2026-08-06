@@ -1,5 +1,5 @@
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
@@ -45,6 +45,17 @@ function waitForExit(child, timeoutMs = 5_000) {
   });
 }
 
+const manifest = JSON.parse(readFileSync('package.json', 'utf8'));
+if (manifest.peerDependencies?.zod === undefined || manifest.dependencies?.zod !== undefined) {
+  throw new Error('Zod must be published as a peer dependency');
+}
+if (manifest.dependencies?.valibot === undefined) {
+  throw new Error('Valibot must be published as a regular dependency');
+}
+if (manifest.dependencies?.c12 === undefined) {
+  throw new Error('c12 must be published as a regular dependency');
+}
+
 const packed = JSON.parse(execFileSync('npm', ['pack', '--dry-run', '--json'], { encoding: 'utf8' }));
 const files = new Set(packed[0]?.files?.map((file) => file.path));
 if (!files.has('bin/lume-cms.mjs')) throw new Error('Published package is missing its stable bin entry');
@@ -52,8 +63,22 @@ if (!files.has('dist/cli.mjs')) throw new Error('Published package is missing di
 if (!files.has('dist/schedule.mjs') || !files.has('dist/schedule.d.mts')) {
   throw new Error('Published package is missing its schedule entry');
 }
-if (readFileSync('dist/index.mjs', 'utf8').includes('publishAtMs')) {
+const runtimeBundle = readFileSync('dist/index.mjs', 'utf8');
+const configBundle = readFileSync('dist/config.mjs', 'utf8');
+const publishedBundles = readdirSync('dist')
+  .filter((file) => file.endsWith('.mjs'))
+  .map((file) => readFileSync(path.join('dist', file), 'utf8'));
+if (runtimeBundle.includes('publishAtMs')) {
   throw new Error('The core runtime bundle statically includes schedule implementation details');
+}
+if (!/from ["']zod["']/.test(configBundle)) {
+  throw new Error('The config entry must keep Zod external');
+}
+if (/from ["']zod["']/.test(runtimeBundle)) {
+  throw new Error('The core runtime entry must not import Zod');
+}
+if (!publishedBundles.some((bundle) => /from ["']c12["']/.test(bundle))) {
+  throw new Error('The published CLI chunks must keep c12 external');
 }
 execFileSync('pnpm', [
   'exec',
@@ -123,7 +148,7 @@ try {
     cwd: fixture,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
-  await waitForOutput(watchChild, /Watching for content and configuration changes\./);
+  await waitForOutput(watchChild, /Watching for content changes\./);
   const rebuilt = waitForOutput(watchChild, /\(1 rebuilt, 0 cached\)/);
   writeFileSync(path.join(fixture, 'content/page.md'), '---\ntitle: Changed\n---\nChanged');
   await rebuilt;

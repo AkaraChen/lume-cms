@@ -1,8 +1,6 @@
 import content from '../content.generated.json';
-import { cache } from 'react';
-import { collection, createFumadocsSources, type CompiledContent } from 'lume-cms';
-import { lucideIconsPlugin } from 'fumadocs-core/source/lucide-icons';
-import { schedule } from 'lume-cms/schedule';
+import config from '../lume.config';
+import { createFumadocsSources, type CompiledContent } from 'lume-cms';
 import { docsContentRoute, docsImageRoute } from './shared';
 
 interface PageFrontmatter extends Record<string, unknown> {
@@ -13,20 +11,9 @@ interface PageFrontmatter extends Record<string, unknown> {
   tags?: string[];
 }
 
-const requestNow = cache(() => new Date());
-
 export const { sources, getAllSources, getAllPages } = createFumadocsSources(
   content as CompiledContent<PageFrontmatter>,
-  {
-    now: requestNow,
-    collections: {
-      docs: collection({
-        plugins: [schedule()],
-        loaderPlugins: [lucideIconsPlugin()],
-      }),
-      blog: collection({ plugins: [schedule()] }),
-    },
-  },
+  config,
 );
 
 export const { getPreviewSource, getSource } = sources.docs;

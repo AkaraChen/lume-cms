@@ -11,4 +11,5 @@ export default defineConfig({
   clean: true,
   format: 'esm',
   platform: 'node',
+  deps: { neverBundle: true },
 });

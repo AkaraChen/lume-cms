@@ -147,7 +147,11 @@ publishDate: 2099-01-01T00:00:00Z
 [Broken from scheduled](./missing-from-scheduled)
 `,
     });
-    const result = await compileContent({ cwd, write: false, config: { plugins: [schedule()] } });
+    const result = await compileContent({
+      cwd,
+      write: false,
+      config: { collections: { default: { plugins: [schedule()] } } },
+    });
 
     expect(result.collections.default?.diagnostics?.map(({ sourcePath, target }) => [sourcePath, target])).toEqual([
       ['content/draft.md', './missing-from-draft'],

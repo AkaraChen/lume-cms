@@ -12,13 +12,18 @@ import { defaultMetaSchema, defaultPageSchema } from '../src/config.js';
 import { createFumadocsSource } from '../src/index.js';
 import { schedule } from '../src/schedule.js';
 import {
-  definePlugin,
-  type CompileCollectionContext,
+  defineBuildPlugin,
+  type BuildCollectionContext,
+  type BuildPluginContext,
   type Next,
-  type PluginContext,
 } from '../src/plugin.js';
+import type { AnyLumePlugin } from '../src/plugin.js';
 
 const dirs: string[] = [];
+
+function configWithPlugins<const Plugins extends readonly AnyLumePlugin[]>(plugins: Plugins) {
+  return { collections: { default: { plugins } } };
+}
 
 async function fixture(files: Record<string, string>) {
   const cwd = await mkdtemp(path.join(tmpdir(), 'lume-cms-'));
@@ -445,7 +450,7 @@ Body`,
 
   it('rejects invalid or offset-less dates', async () => {
     const cwd = await fixture({ 'content/date.md': '---\ntitle: Date\npublishDate: 2026-09-01\n---\nBody' });
-    await expect(compileContent({ cwd, write: false, config: { plugins: [schedule()] } }))
+    await expect(compileContent({ cwd, write: false, config: configWithPlugins([schedule()]) }))
       .rejects.toThrow(/content\/date\.md: invalid publishDate/);
   });
 
@@ -454,7 +459,7 @@ Body`,
       'content/a.md': '---\ntitle: A\npublishDate: 2026-09-01T10:00:00+08:00\n---\nA',
       'content/b.md': '---\ntitle: B\npublishDate: 2026-09-01T02:00:00Z\n---\nB',
     });
-    const config = { plugins: [schedule()] };
+    const config = configWithPlugins([schedule()]);
     const one = await compileContent({ cwd, write: false, config });
     const two = await compileContent({ cwd, write: false, config });
     expect((one.collections.default!.entries[0]?.ext.schedule as { publishAtMs: number }).publishAtMs)
@@ -481,11 +486,11 @@ Body`,
       secret: v.pipe(v.string(), v.transform((value) => value.toUpperCase())),
       mode: v.optional(v.string(), 'default-mode'),
     });
-    const makePlugin = (id: string) => definePlugin({
+    const makePlugin = (id: string) => defineBuildPlugin({
       id,
       frontmatter: { schema },
-      compile: {
-        async setup(_context: PluginContext, next: Next<Promise<void>>) {
+      build: {
+        async setup(_context: BuildPluginContext, next: Next<Promise<void>>) {
           calls.push(`setup:${id}`);
           await next();
         },
@@ -493,7 +498,7 @@ Body`,
           calls.push(`entry:${id}`);
           return { value: frontmatter.secret, mode: frontmatter.mode };
         },
-        async collection(_context: CompileCollectionContext, next: Next<Promise<void>>) {
+        async collection(_context: BuildCollectionContext, next: Next<Promise<void>>) {
           calls.push(`collection:${id}`);
           await next();
         },
@@ -502,7 +507,7 @@ Body`,
     const result = await compileContent({
       cwd,
       write: false,
-      config: { plugins: [makePlugin('one'), makePlugin('two')] },
+      config: configWithPlugins([makePlugin('one'), makePlugin('two')]),
     });
 
     expect(calls).toEqual(['setup:one', 'setup:two', 'entry:one', 'entry:two', 'collection:one', 'collection:two']);
@@ -516,17 +521,17 @@ Body`,
   it('runs setup and collection middleware outside-in while keeping entry extensions isolated', async () => {
     const cwd = await fixture({ 'content/page.md': '---\ntitle: Page\n---\nBody' });
     const calls: string[] = [];
-    const makePlugin = (id: string) => definePlugin({
+    const makePlugin = (id: string) => defineBuildPlugin({
       id,
-      compile: {
+      build: {
         cacheKey: id,
-        async setup(_context: PluginContext, next: Next<Promise<void>>) {
+        async setup(_context: BuildPluginContext, next: Next<Promise<void>>) {
           calls.push(`${id}:setup:before`);
           await next();
           calls.push(`${id}:setup:after`);
         },
         entry: () => ({ owner: id }),
-        async collection(context: CompileCollectionContext, next: Next<Promise<void>>) {
+        async collection(context: BuildCollectionContext, next: Next<Promise<void>>) {
           calls.push(`${id}:collection:before:${context.entries.length}`);
           await next();
           calls.push(`${id}:collection:after`);
@@ -536,7 +541,7 @@ Body`,
     const result = await compileContent({
       cwd,
       write: false,
-      config: { plugins: [makePlugin('a'), makePlugin('b')] },
+      config: configWithPlugins([makePlugin('a'), makePlugin('b')]),
     });
     expect(calls).toEqual([
       'a:setup:before', 'b:setup:before', 'b:setup:after', 'a:setup:after',
@@ -556,22 +561,22 @@ Body`,
     const cache = new CompileCache();
     const entryCalls: string[] = [];
     let collectionCalls = 0;
-    const plugin = (cacheKey: string) => definePlugin({
+    const plugin = (cacheKey: string) => defineBuildPlugin({
       id: 'probe',
-      compile: {
+      build: {
         cacheKey,
         entry({ sourcePath }) {
           entryCalls.push(sourcePath);
           return { cacheKey };
         },
-        async collection({ entries }: CompileCollectionContext, next: Next<Promise<void>>) {
+        async collection({ entries }: BuildCollectionContext, next: Next<Promise<void>>) {
           collectionCalls += 1;
           for (const item of entries) item.data.finalized = ((item.data.finalized as number | undefined) ?? 0) + 1;
           await next();
         },
       },
     });
-    const config = { plugins: [plugin('v1')] };
+    const config = configWithPlugins([plugin('v1')]);
 
     const first = await compileContent({ cwd, write: false, config, cache });
     expect(cache.stats).toEqual({ compiledEntries: 2, cachedEntries: 0 });
@@ -602,7 +607,7 @@ Body`,
     const changedPlugin = await compileContent({
       cwd,
       write: false,
-      config: { plugins: [plugin('v2')] },
+      config: configWithPlugins([plugin('v2')]),
       cache,
     });
     expect(cache.stats).toEqual({ compiledEntries: 2, cachedEntries: 0 });
@@ -616,10 +621,10 @@ Body`,
     const cwd = await fixture({ 'content/page.md': '---\ntitle: Page\n---\nBody' });
     const options: Record<string, unknown> = { mode: 'cyclic' };
     options.self = options;
-    const plugin = definePlugin({ id: 'cyclic', options });
+    const plugin = defineBuildPlugin({ id: 'cyclic', options });
 
-    const first = await compileContent({ cwd, write: false, config: { plugins: [plugin] } });
-    const second = await compileContent({ cwd, write: false, config: { plugins: [plugin] } });
+    const first = await compileContent({ cwd, write: false, config: configWithPlugins([plugin]) });
+    const second = await compileContent({ cwd, write: false, config: configWithPlugins([plugin]) });
     expect(serializeCompiledContent(first)).toBe(serializeCompiledContent(second));
   });
 });
