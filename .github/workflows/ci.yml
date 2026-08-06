@@ -18,7 +18,11 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm check
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+      - run: pnpm test:package
       - run: pnpm size
       - run: pnpm --filter lume-cms-example build
       - run: node scripts/scan-client.mjs examples UNPUBLISHED_TITLE_KIT_614 UNPUBLISHED_BODY_SENTINEL_KIT_614 UNPUBLISHED_BLOG_TITLE_KIT_618 UNPUBLISHED_BLOG_BODY_SENTINEL_KIT_618

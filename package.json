@@ -28,11 +28,12 @@
   "scripts": {
     "build": "tsdown",
     "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:package": "node scripts/verify-package.mjs",
     "size": "size-limit",
-    "check": "pnpm typecheck && pnpm test && pnpm build && pnpm test:package"
+    "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm test:package"
   },
   "dependencies": {
     "@mdx-js/mdx": "^3.1.1",
@@ -49,16 +50,21 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@size-limit/file": "^11.2.0",
     "@types/node": "^24.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "eslint": "^10.8.0",
+    "eslint-plugin-unicorn": "^73.0.0",
     "fumadocs-core": "^16.14.0",
+    "globals": "^17.9.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "size-limit": "^11.2.0",
     "tsdown": "^0.22.14",
     "typescript": "^5.9.3",
+    "typescript-eslint": "^8.66.0",
     "vitest": "^3.2.4",
     "zod": "^4.4.3"
   },
