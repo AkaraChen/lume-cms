@@ -37,12 +37,12 @@ export function schedule(options: ScheduleOptions = {}): SchedulePlugin {
     at: (entry) => extension(entry.compiled).publishAtMs,
     invalidate: (entry) => !entry.compiled.draft,
   });
-  return definePlugin({
+  return definePlugin<{ publishDate?: string }, { publishDate: string | null }>({
     id: 'schedule',
     frontmatter: {
       schema: v.object({ [field]: v.optional(v.string()) }),
     },
-    compile: {
+    build: {
       cacheKey: JSON.stringify({ field, sort: options.sort }),
       entry({ frontmatter, sourcePath }) {
         const value = frontmatter[field];

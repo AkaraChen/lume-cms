@@ -11,28 +11,30 @@ pnpm add lume-cms fumadocs-core
 Create `lume.config.ts`:
 
 ```ts
-import { defineConfig } from 'lume-cms/config';
+import { collection, defineConfig } from 'lume-cms/config';
 import { schedule } from 'lume-cms/schedule';
 
 export default defineConfig({
   collections: {
-    docs: {
+    docs: collection({
       baseUrl: '/docs',
       root: 'content/docs',
       include: ['**/*.{md,mdx}'],
-    },
-    blog: {
+    }),
+    blog: collection({
       baseUrl: '/blog',
       root: 'content/blog',
       include: ['**/*.{md,mdx}'],
-    },
+      plugins: [schedule({ sort: 'date-desc' })],
+    }),
   },
-  plugins: [schedule()],
   output: 'content.generated.json',
 });
 ```
 
-Each collection owns its root, root-relative globs, schema, public `baseUrl`, and optional plugin list. Top-level `plugins` are defaults for collections that omit `plugins`. A source file may belong to only one collection. Omitting `collections` creates one collection named `default`. Schema-version 2 JSON must be rebuilt; the runtime intentionally does not guess a migration.
+Each collection owns its root, root-relative globs, schema, public `baseUrl`, runtime loader options, and plugin list. Plugins never apply globally: here `schedule()` extends and filters `blog`, while `docs` has no scheduling field or behavior. `collection()` preserves that plugin tuple for runtime page-data inference. A source file may belong to only one collection. Omitting `collections` creates one collection named `default`. Schema-version 2 JSON must be rebuilt; the runtime intentionally does not guess a migration.
+
+The package boundaries keep the core slim: `lume-cms/config` contains only config/plugin identities and types, `lume-cms/schema` owns the optional Zod-backed defaults, `lume-cms/schedule` owns scheduling, and the root `lume-cms` entry owns the server runtime. Config loading through c12 is private to the CLI, so importing `lume.config.ts` from a server module does not pull the loader into the application bundle.
 
 With no schema override, lume-cms imports Fumadocs' locked `pageSchema` and `metaSchema` directly. The configuration accepts the Standard Schema interface, so Valibot 1.x, Zod 4, and other conforming implementations can replace them without an adapter. Plugin-owned fields such as `publishDate` stay out of public page data. Each collection persists its normalized `baseUrl`, so its reference validation and runtime Fumadocs loader cannot drift.
 
@@ -65,7 +67,8 @@ For the Fumadocs-style `.extend()` workflow, install Zod and extend the exported
 
 ```ts
 import { z } from 'zod';
-import { defaultMetaSchema, defaultPageSchema, defineConfig } from 'lume-cms/config';
+import { defineConfig } from 'lume-cms/config';
+import { defaultMetaSchema, defaultPageSchema } from 'lume-cms/schema';
 
 export default defineConfig({
   collections: {
@@ -116,9 +119,9 @@ Pass the same object at runtime to detect configuration drift (new artifacts can
 ```ts
 import content from './content.generated.json';
 import { createFumadocsSource } from 'lume-cms';
-import { i18n } from './lume.config';
+import config from './lume.config';
 
-export const { getSource } = createFumadocsSource(content, { i18n });
+export const { getSource } = createFumadocsSource(content, config);
 ```
 
 The returned official loader supports `getPage(slugs, locale)`, `getPages(locale)`, `getPageTree(locale)`, and `getLanguages()`. With the default `hideLocale: 'never'`, `baseUrl: '/docs'` produces `/en/docs/guide` and `/zh/docs/guide`; Fumadocs' `always` and `default-locale` modes are passed through unchanged. Missing translations inherit `fallbackLanguage` (the default language by default), while `fallbackLanguage: null` disables inheritance. Every locale is built from the same filtered dynamic files: draft content never appears, scheduled translations become visible only at their deadline, and fallback cannot expose a filtered body from another locale.
@@ -142,7 +145,7 @@ The loader exposes the two values as `page.data.content` (original) and `page.da
 
 This intentionally duplicates body text in the JSON artifact. In the three-page example fixture it adds 542 bytes uncompressed and 48 bytes after Brotli (12,639 → 13,181 raw; 2,214 → 2,262 Brotli). Growth is linear and can approach one extra normalized body per page before compression; large-site sharding/lazy-loading thresholds remain KIT-626's benchmark decision rather than being mixed into the export contract.
 
-For local editing, run `lume-cms build --watch`. The first build is clean; later builds reuse an in-memory cache keyed by source path and content plus the resolved content configuration, schema, compiler version, plugin implementation, and plugin `compile.cacheKey`. Add, change, rename, and delete events update the same deterministic output without restarting the process. Configuration and local plugin source changes are reloaded and invalidate affected cache entries. A failed rebuild reports the error, keeps the last successful output, and continues watching so the next edit can recover. Custom plugins whose behavior depends on closed-over options should expose a stable `compile.cacheKey` containing those options.
+For local editing, run `lume-cms build --watch`. The first build is clean; later builds reuse an in-memory cache keyed by source path and content plus the resolved content configuration, schema, compiler version, plugin implementation, and plugin `build.cacheKey`. Add, change, rename, and delete events update the same deterministic output without restarting the process. Configuration and local plugin source changes are reloaded and invalidate affected cache entries. A failed rebuild reports the error, keeps the last successful output, and continues watching so the next edit can recover. Custom plugins whose behavior depends on closed-over options should expose a stable `build.cacheKey` containing those options.
 
 Keep process orchestration in the consuming app. For example, install `concurrently` as that app's dev dependency and give content compilation and Next.js separate scripts:
 
@@ -180,27 +183,18 @@ The independently importable `schedule()` plugin owns `publishDate`. It accepts 
 
 ```ts
 import content from './content.generated.json';
-import { cache } from 'react';
-import { collection, createFumadocsSources } from 'lume-cms';
-import { schedule } from 'lume-cms/schedule';
+import { createFumadocsSources } from 'lume-cms';
+import config from './lume.config';
 
-const requestNow = cache(() => new Date());
-
-export const { sources, getAllSources, getAllPages } = createFumadocsSources(content, {
-  now: requestNow,
-  collections: {
-    docs: collection({ plugins: [schedule()] }),
-    blog: collection({ plugins: [schedule()] }),
-  },
-});
+export const { sources, getAllSources, getAllPages } = createFumadocsSources(content, config);
 
 export const { getSource: getDocsSource } = sources.docs;
 export const { getSource: getBlogSource } = sources.blog;
 ```
 
-`collection()` is a type-preserving identity helper: each nested source keeps the page-data fields contributed by its own plugin tuple. The runtime requires the compiled and configured collection names to match in both directions and rejects duplicate compiled `baseUrl` values. `getAllPages()` is the visibility-safe union for sitemap and text exports. The singular `createFumadocsSource()` is the first-class entry point when JSON contains exactly one collection.
+The same config object drives compilation and runtime construction. Node-only build fields (`root`, globs, schemas) are ignored by the runtime; runtime-only loader callbacks are ignored by the compiler. The JSON import remains explicit so Next.js can statically trace the generated artifact. The runtime requires compiled and configured collection names to match in both directions and rejects duplicate compiled `baseUrl` values. `getAllPages()` is the visibility-safe union for sitemap and text exports. The singular `createFumadocsSource()` is the first-class entry point when JSON contains exactly one collection.
 
-Plugins run on both sides of the JSON boundary, so each compile collection and runtime source must register the same ordered plugin list. The compiled JSON records plugin ids and the runtime fails immediately if either side is missing, extra, duplicated, or reordered. Fumadocs loader plugins can still be supplied separately through `loaderPlugins`.
+Plugins expose explicit build and runtime capabilities. `LumeBuildPlugin` and `LumeRuntimePlugin` are nominally incompatible, while `definePlugin()` can return one object implementing both; `schedule()` does exactly that. Its build half extends frontmatter and compiles publication metadata, and its runtime half filters, decorates, sorts, and calculates the next deadline. `defineBuildPlugin()` and `defineRuntimePlugin()` are available for one-sided plugins. Compiled JSON records build-plugin ids and startup validates each collection's ordered build-plugin list. Fumadocs loader plugins remain a distinct runtime-only pipeline under `loaderPlugins`.
 
 ### Per-request preview
 
@@ -253,30 +247,34 @@ Each collection source covers the complete `loader()` option surface from the lo
 
 | Official option | lume-cms API | Ownership and behavior |
 | --- | --- | --- |
-| `baseUrl` | collection compile-time `baseUrl`; optional matching runtime `baseUrl` | persisted collection truth; conflicting runtime duplication fails |
-| `i18n` | compile-time `i18n`; optional matching runtime `i18n` | persisted compiler truth; runtime cannot enable or change it |
-| `url(slugs, locale)` | runtime `url` | authoritative for page records and page-tree nodes; overrides default `baseUrl` URL generation |
-| `slugs(file)` | runtime `slugs` | official callback receives only visible page files; its result replaces compiled fallback slugs in every loader read |
-| `pageTree` | runtime `pageTree` | `idPrefix`, `noRef`, `generateFallback`, `transformers`, `context`, and `sort` pass through |
-| `icon` | runtime `icon` | resolves page, folder, separator, and external-link icon names |
-| `plugins` | runtime `loaderPlugins` | array/nested options and the official `({ typedPlugin }) => [...]` form pass through; renamed to avoid the lume plugin slot |
+| `baseUrl` | collection `baseUrl` | persisted collection truth shared by reference validation and runtime URLs |
+| `i18n` | collection `i18n` | persisted compiler truth; runtime cannot enable or change it |
+| `url(slugs, locale)` | collection `url` | runtime callback authoritative for page records and page-tree nodes |
+| `slugs(file)` | collection `slugs` | runtime callback receives only visible page files |
+| `pageTree` | collection `pageTree` | runtime `idPrefix`, `noRef`, `generateFallback`, transformers, context, and sort |
+| `icon` | collection `icon` | runtime resolver for page, folder, separator, and external-link icon names |
+| `plugins` | collection `loaderPlugins` | Fumadocs runtime plugins, renamed to distinguish them from lume plugins |
 
-The official object-form `source` is intentionally unavailable: lume-cms owns each collection's `DynamicSource` so every page enters Fumadocs only after the one draft/deadline visibility filter. `pageTree.url` is also rejected at the type and runtime boundaries; use the top-level `url` callback so page records and navigation cannot acquire different URLs. Page-tree transformers and loader plugins are deliberate low-level escape hatches: they run on the already-filtered virtual storage and must not synthesize unfiltered content or mutate node URLs away from the top-level callback.
+The official object-form `source` is intentionally unavailable: lume-cms owns each collection's `DynamicSource` so every page enters Fumadocs only after the one draft/deadline visibility filter. `pageTree.url` is also rejected at the type and runtime boundaries; use the collection's `url` callback so page records and navigation cannot acquire different URLs. Page-tree transformers and loader plugins are deliberate low-level escape hatches: they run on the already-filtered virtual storage and must not synthesize unfiltered content or mutate node URLs away from the collection callback.
 
 For example:
 
 ```ts
 export const { getSource } = createFumadocsSource(content, {
-  url: (slugs, locale) => `/${[locale, 'knowledge', ...slugs].filter(Boolean).join('/')}`,
-  slugs: (file) => typeof file.data.route === 'string'
-    ? file.data.route.split('/').filter(Boolean)
-    : undefined,
-  icon: (name) => name ? icons[name] : undefined,
-  pageTree: {
-    sort: { by: 'name', locales: ['en', 'zh'] },
-    transformers: [myTreeTransformer],
+  collections: {
+    default: {
+      url: (slugs, locale) => `/${[locale, 'knowledge', ...slugs].filter(Boolean).join('/')}`,
+      slugs: (file) => typeof file.data.route === 'string'
+        ? file.data.route.split('/').filter(Boolean)
+        : undefined,
+      icon: (name) => name ? icons[name] : undefined,
+      pageTree: {
+        sort: { by: 'name', locales: ['en', 'zh'] },
+        transformers: [myTreeTransformer],
+      },
+      loaderPlugins: ({ typedPlugin }) => [typedPlugin(myLoaderPlugin)],
+    },
   },
-  loaderPlugins: ({ typedPlugin }) => [typedPlugin(myLoaderPlugin)],
 });
 ```
 
@@ -284,11 +282,11 @@ Runtime `url` and `slugs` functions cannot be serialized into deterministic JSON
 
 Fumadocs loader plugins are a distinct runtime-only pipeline under `loaderPlugins`.
 
-Custom plugins can use `definePlugin` from `lume-cms/config`. A plugin frontmatter schema must output only fields owned by that plugin; those validated fields are removed from user page data and passed to its `entry` hook, while unvalidated input is available separately as `rawFrontmatter`. Compile stages are `setup`, isolated per-file `entry`, then `collection`. `setup` and `collection` are middleware; `entry` deliberately remains a direct return value stored under `entry.ext[plugin.id]`, preserving plugin isolation and `compile.cacheKey` semantics.
+Custom plugins use `defineBuildPlugin()`, `defineRuntimePlugin()`, or `definePlugin()` from `lume-cms/config`. Build and runtime plugin types carry different private brands, so accidentally passing a one-sided plugin to the wrong pipeline is a type error. A dual plugin is their intersection and remains one ordinary object in user config. A build plugin's frontmatter schema must output only fields it owns; those validated fields are removed from user page data and passed to its `build.entry` hook, while unvalidated input is available separately as `rawFrontmatter`. Build stages are `setup`, isolated per-file `entry`, then `collection`. `setup` and `collection` are middleware; `entry` is stored under `entry.ext[plugin.id]`, preserving plugin isolation and `build.cacheKey` semantics.
 
 Runtime stages are `resolve`, `list`, then `deadline`. Middleware receives `next` last: registration order is outside-in before `next()` and inside-out afterward, and calling `next()` twice throws. `resolve` marks a generation-scoped `ResolvedEntry` with `hide(reason)`, private state, or page-data patches. The core `list` stage applies every hide reason and default ordering once, so detail pages, lists, RSS, sitemap, navigation, and search cannot drift. Time-dependent plugins must supply `deadline`; `defineTimeGate()` derives both the hide mark and invalidation boundary from one declaration. Compiled schema v3 and the `ext` layout are unchanged.
 
-The generated JSON intentionally retains future entries and their bodies. `createFumadocsSource()` applies its only visibility predicate while producing Fumadocs `DynamicSource.files()`. The page tree, search index, navigation and every page lookup derive from those filtered files. Advancing an injected clock across a deadline changes all reads without compiling JSON or rebuilding the app.
+The generated JSON intentionally retains future entries and their bodies. `createFumadocsSource()` applies its only visibility predicate while producing Fumadocs `DynamicSource.files()`. The page tree, search index, navigation and every page lookup derive from those filtered files. The runtime reads its internal system clock on every `getSource()` call; there is no public clock option to configure. Crossing a deadline changes all reads without compiling JSON or rebuilding the app.
 
 The Fumadocs adapter uses its public `DynamicSource` and `dynamicLoader()` APIs. Its cache is deadline-aware:
 
@@ -296,7 +294,7 @@ The Fumadocs adapter uses its public `DynamicSource` and `dynamicLoader()` APIs.
 validUntil = next unpublished publishDate, or Infinity when none remain
 ```
 
-Each collection caches bounded, immutable loader generations over `[observedAt, validUntil)` intervals. Concurrent reads in one interval coalesce, while an older frozen request keeps its pre-publication generation after a newer request crosses the deadline; evicted generations are safely rebuilt from their frozen time. A docs deadline does not affect blog and vice versa. Pass a request-scoped frozen clock such as React `cache(() => new Date())` at the top level; this keeps navigation, page, metadata, OG, RSS, and search self-consistent when overlapping requests straddle a publication boundary.
+Each collection caches bounded, immutable loader generations over `[observedAt, validUntil)` intervals. Concurrent reads in one interval coalesce; after the system clock crosses a deadline, the next call selects or creates the matching generation. A docs deadline does not affect blog and vice versa. A returned loader is immutable, so all reads from that loader—navigation, page, metadata, OG, RSS, and search—share one visibility snapshot.
 
 ## Dynamic search
 
@@ -344,7 +342,6 @@ The runtime entry points import `server-only`. Keep the JSON and any module that
 
 ```sh
 node scripts/scan-client.mjs examples \
-  "UNPUBLISHED_DOCS_TITLE" "UNPUBLISHED_DOCS_BODY" \
   "UNPUBLISHED_BLOG_TITLE" "UNPUBLISHED_BLOG_BODY"
 ```
 

@@ -1,5 +1,4 @@
-import { AsyncLocalStorage } from 'node:async_hooks';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Folder, Item, Node, Root } from 'fumadocs-core/page-tree';
 import { collection, createFumadocsSource, createFumadocsSources } from '../src/index.js';
 import {
@@ -46,54 +45,27 @@ function starterConsumerSets(
 }
 
 describe('createFumadocsSource', () => {
-  it('keeps an older frozen clock consistent after a newer scope crosses the deadline', async () => {
-    const clock = new AsyncLocalStorage<number>();
+  afterEach(() => vi.useRealTimers());
+
+  it('reads the internal clock again after a publication deadline', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(19);
     const source = createFumadocsSource({
       schemaVersion: 3,
       collections: { default: { baseUrl: '/', plugins: ['schedule'], entries: [entry('scheduled', 20)], metas: [] } },
-    }, { now: () => new Date(clock.getStore()!), plugins: [schedule()] });
+    }, { collections: { default: collection({ plugins: [schedule()] }) } });
 
-    const before = await clock.run(19, () => source.getSource());
-    const after = await clock.run(20, () => source.getSource());
-    const beforeAgain = await clock.run(19, () => source.getSource());
+    const before = await source.getSource();
+    vi.setSystemTime(20);
+    const after = await source.getSource();
 
     expect(before.getPages()).toHaveLength(0);
     expect(after.getPages().map((page) => page.slugs[0])).toEqual(['scheduled']);
-    expect(beforeAgain.getPages()).toHaveLength(0);
-  });
-
-  it('keeps concurrent interleaved frozen-clock scopes isolated', async () => {
-    const clock = new AsyncLocalStorage<number>();
-    const source = createFumadocsSource({
-      schemaVersion: 3,
-      collections: { default: { baseUrl: '/', plugins: ['schedule'], entries: [entry('scheduled', 20)], metas: [] } },
-    }, { now: () => new Date(clock.getStore()!), plugins: [schedule()] });
-    let signalBeforeRead!: () => void;
-    let signalAfterRead!: () => void;
-    const beforeRead = new Promise<void>((resolve) => { signalBeforeRead = resolve; });
-    const afterRead = new Promise<void>((resolve) => { signalAfterRead = resolve; });
-
-    const olderScope = clock.run(19, async () => {
-      const first = await source.getSource();
-      signalBeforeRead();
-      await afterRead;
-      const second = await source.getSource();
-      return [first.getPages(), second.getPages()];
-    });
-    const newerScope = clock.run(20, async () => {
-      await beforeRead;
-      const current = await source.getSource();
-      signalAfterRead();
-      return current.getPages();
-    });
-
-    const [olderPages, newerPages] = await Promise.all([olderScope, newerScope]);
-    expect(olderPages).toEqual([[], []]);
-    expect(newerPages.map((page) => page.slugs[0])).toEqual(['scheduled']);
   });
 
   it('creates isolated sources and a visibility-safe union across collections', async () => {
-    let now = 19;
+    vi.useFakeTimers();
+    vi.setSystemTime(19);
     const result = createFumadocsSources({
       schemaVersion: 3,
       collections: {
@@ -101,7 +73,6 @@ describe('createFumadocsSource', () => {
         blog: { baseUrl: '/blog', plugins: ['schedule'], entries: [entry('shared', 10), entry('blog-later', 30)], metas: [] },
       },
     }, {
-      now: () => new Date(now),
       collections: {
         docs: collection({ plugins: [schedule()] }),
         blog: collection({ plugins: [schedule()] }),
@@ -115,7 +86,7 @@ describe('createFumadocsSource', () => {
     expect(Object.values(starterConsumerSets(docsBefore, ['shared', 'docs-later']))).toEqual(Array(7).fill(['shared']));
     expect(Object.values(starterConsumerSets(blogBefore, ['shared', 'blog-later']))).toEqual(Array(7).fill(['shared']));
     expect((await result.getAllPages()).map((page) => page.url).sort()).toEqual(['/blog/shared', '/docs/shared']);
-    now = 20;
+    vi.setSystemTime(20);
     const docsAfter = await result.sources.docs.getSource();
     const blogAfter = await result.sources.blog.getSource();
     expect(Object.values(starterConsumerSets(docsAfter, ['shared', 'docs-later']))).toEqual(Array(7).fill(['docs-later', 'shared']));
@@ -177,7 +148,8 @@ describe('createFumadocsSource', () => {
   });
 
   it('invalidates exactly at the publication deadline', async () => {
-    let now = 999;
+    vi.useFakeTimers();
+    vi.setSystemTime(999);
     const content: CompiledContent = {
       schemaVersion: 3,
       collections: { default: { baseUrl: '/', plugins: ['schedule'], entries: [{
@@ -189,14 +161,15 @@ describe('createFumadocsSource', () => {
         body: { markdown: 'secret', processedMarkdown: 'secret', code: '', toc: [], structuredData: { headings: [], contents: [] } },
       }], metas: [] } },
     };
-    const source = createFumadocsSource(content, { now: () => new Date(now), plugins: [schedule()] });
+    const source = createFumadocsSource(content, { collections: { default: collection({ plugins: [schedule()] }) } });
     expect((await source.getSource()).getPages()).toHaveLength(0);
-    now = 1_000;
+    vi.setSystemTime(1_000);
     expect((await source.getSource()).getPage(['scheduled'])?.data.title).toBe('Scheduled');
   });
 
   it('keeps the visible slug set identical across all seven starter paths plus RSS and sitemap', async () => {
-    let now = 19;
+    vi.useFakeTimers();
+    vi.setSystemTime(19);
     const source = createFumadocsSource({
       schemaVersion: 3,
       collections: { default: {
@@ -205,18 +178,20 @@ describe('createFumadocsSource', () => {
         entries: [entry('published', 10), entry('scheduled', 20), entry('draft', null, true)],
         metas: [],
       } },
-    }, { now: () => new Date(now), plugins: [schedule()] });
+    }, { collections: { default: collection({ plugins: [schedule()] }) } });
 
     const before = await source.getSource();
     expect(Object.values(starterConsumerSets(before))).toEqual(Array(7).fill(['published']));
     expect(before.getPages().map((page) => page.slugs.join('/'))).toEqual(['published']); // RSS and sitemap
-    now = 20;
+    vi.setSystemTime(20);
     const after = await source.getSource();
     expect(Object.values(starterConsumerSets(after))).toEqual(Array(7).fill(['published', 'scheduled']));
     expect(after.getPages().map((page) => page.slugs.join('/')).sort()).toEqual(['published', 'scheduled']);
   });
 
   it('previews only the explicitly requested draft and future dimensions', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(10);
     const factory = createFumadocsSource({
       schemaVersion: 3,
       collections: { default: { baseUrl: '/', i18n: undefined, plugins: ['schedule'], entries: [
@@ -225,7 +200,7 @@ describe('createFumadocsSource', () => {
           entry('future', 20),
           entry('draft-future', 20, true),
         ], metas: [] } },
-    }, { now: () => new Date(10), plugins: [schedule()] });
+    }, { collections: { default: collection({ plugins: [schedule()] }) } });
     const slugs = async (options?: Parameters<typeof factory.getPreviewSource>[0]) =>
       (await factory.getPreviewSource(options)).getPages().map((page) => page.slugs[0]).sort();
 
@@ -243,7 +218,8 @@ describe('createFumadocsSource', () => {
   });
 
   it('keeps preview loaders isolated from the public deadline and coalesced refresh state', async () => {
-    let now = 10;
+    vi.useFakeTimers();
+    vi.setSystemTime(10);
     let deadlineCalls = 0;
     const previewContexts: Array<PreviewContext | undefined> = [];
     const observed = definePlugin({
@@ -268,7 +244,7 @@ describe('createFumadocsSource', () => {
         entries: [entry('future', 20)],
         metas: [],
       } },
-    }, { now: () => new Date(now), plugins: [schedule(), observed] });
+    }, { collections: { default: collection({ plugins: [schedule(), observed] }) } });
 
     expect((await factory.getSource()).getPage(['future'])).toBeUndefined();
     expect(deadlineCalls).toBe(1);
@@ -280,7 +256,7 @@ describe('createFumadocsSource', () => {
 
     expect((await factory.getSource()).getPage(['future'])).toBeUndefined();
     expect(deadlineCalls).toBe(1);
-    now = 20;
+    vi.setSystemTime(20);
     const [concurrentPreview, ...refreshed] = await Promise.all([
       factory.getPreviewSource({ future: true }),
       ...Array.from({ length: 20 }, () => factory.getSource()),
@@ -292,6 +268,8 @@ describe('createFumadocsSource', () => {
   });
 
   it('does not bypass third-party visibility plugins that ignore preview context', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(10);
     const trustedOnly = definePlugin({
       id: 'trusted-only',
       runtime: {
@@ -310,7 +288,7 @@ describe('createFumadocsSource', () => {
         entries: [entry('hidden', 20, true), entry('visible', 20, true)],
         metas: [],
       } },
-    }, { now: () => new Date(10), plugins: [schedule(), trustedOnly] });
+    }, { collections: { default: collection({ plugins: [schedule(), trustedOnly] }) } });
 
     const preview = await factory.getPreviewSource({ draft: true, future: true });
     expect(preview.getPage(['hidden'])).toBeUndefined();
@@ -324,7 +302,8 @@ describe('createFumadocsSource', () => {
   });
 
   it('snapshots compiled entries once while coalescing generation refreshes', async () => {
-    let now = 19;
+    vi.useFakeTimers();
+    vi.setSystemTime(19);
     let entryReads = 0;
     const entries = [entry('scheduled', 20)];
     const content: CompiledContent = {
@@ -339,19 +318,20 @@ describe('createFumadocsSource', () => {
         },
       } },
     };
-    const source = createFumadocsSource(content, { now: () => new Date(now), plugins: [schedule()] });
+    const source = createFumadocsSource(content, { collections: { default: collection({ plugins: [schedule()] }) } });
     expect(entryReads).toBe(1);
     entryReads = 0;
 
     await Promise.all(Array.from({ length: 20 }, () => source.getSource()));
     expect(entryReads).toBe(0);
-    now = 20;
+    vi.setSystemTime(20);
     await Promise.all(Array.from({ length: 20 }, () => source.getSource()));
     expect(entryReads).toBe(0);
   });
 
   it('reuses prebuilt body components across public generations and previews', async () => {
-    let now = 19;
+    vi.useFakeTimers();
+    vi.setSystemTime(19);
     const source = createFumadocsSource({
       schemaVersion: 3,
       collections: { default: {
@@ -360,11 +340,11 @@ describe('createFumadocsSource', () => {
         entries: [entry('published', 10), entry('scheduled', 20)],
         metas: [],
       } },
-    }, { now: () => new Date(now), plugins: [schedule()] });
+    }, { collections: { default: collection({ plugins: [schedule()] }) } });
 
     const before = await source.getSource();
     const body = before.getPage(['published'])?.data.body;
-    now = 20;
+    vi.setSystemTime(20);
     const after = await source.getSource();
     const preview = await source.getPreviewSource({ future: true });
 
@@ -374,7 +354,8 @@ describe('createFumadocsSource', () => {
   });
 
   it('preserves the complete Fumadocs meta page-tree contract across a deadline', async () => {
-    let now = 19;
+    vi.useFakeTimers();
+    vi.setSystemTime(19);
     const pages = [
       entry('root-page', null),
       { ...entry('intro', null), slug: ['guide', 'intro'], path: 'guide/intro.mdx' },
@@ -411,7 +392,7 @@ describe('createFumadocsSource', () => {
         },
         { path: 'guide/advanced/meta.json', data: { pages: ['b', 'a'] } },
       ] } },
-    }, { now: () => new Date(now), plugins: [schedule()] });
+    }, { collections: { default: collection({ plugins: [schedule()] }) } });
 
     const before = await sourceFactory.getSource();
     const tree = before.getPageTree();
@@ -445,14 +426,15 @@ describe('createFumadocsSource', () => {
     });
     expect(guide.children.some((node: Node) => node.type === 'page' && node.name === 'hidden')).toBe(false);
 
-    now = 20;
+    vi.setSystemTime(20);
     const after = await sourceFactory.getSource();
     const refreshedGuide = after.getPageTree().children[0] as Folder;
     expect((refreshedGuide.children.at(-1) as Item).url).toBe('/guide/tail');
   });
 
   it('applies official loader options to the visible snapshot and every public read path', async () => {
-    let now = 19;
+    vi.useFakeTimers();
+    vi.setSystemTime(19);
     const storageSnapshots: string[][] = [];
     const slugInputs: string[] = [];
     const sourceFactory = createFumadocsSource({
@@ -463,15 +445,15 @@ describe('createFumadocsSource', () => {
         { ...entry('draft', null, true), data: { title: 'Draft', icon: 'Lock' } },
       ], metas: [] } },
     }, {
-      now: () => new Date(now),
-      plugins: [schedule()],
-      url: (slugs) => `/custom/${slugs.join('~')}`,
-      slugs(file) {
-        slugInputs.push(file.path);
-        return [String(file.data.title).toLowerCase()];
-      },
-      icon: (name) => name ? `icon:${name}` : undefined,
-      pageTree: {
+      collections: { default: collection({
+        plugins: [schedule()],
+        url: (slugs) => `/custom/${slugs.join('~')}`,
+        slugs(file) {
+          slugInputs.push(file.path);
+          return [String(file.data.title).toLowerCase()];
+        },
+        icon: (name) => name ? `icon:${name}` : undefined,
+        pageTree: {
         idPrefix: 'cms',
         noRef: true,
         sort: { by: 'name' },
@@ -481,12 +463,13 @@ describe('createFumadocsSource', () => {
             return { ...node, name: `${String(this.custom?.prefix)}${String(node.name)}` };
           },
         }],
-      },
-      loaderPlugins: ({ typedPlugin }) => [typedPlugin({
-        transformStorage({ storage }) {
-          storageSnapshots.push(storage.getFiles().filter((path) => storage.read(path)?.format === 'page'));
         },
-      })],
+        loaderPlugins: ({ typedPlugin }) => [typedPlugin({
+          transformStorage({ storage }) {
+            storageSnapshots.push(storage.getFiles().filter((path) => storage.read(path)?.format === 'page'));
+          },
+        })],
+      }) },
     });
 
     const before = await sourceFactory.getSource();
@@ -503,7 +486,7 @@ describe('createFumadocsSource', () => {
     expect(slugInputs).toEqual(['published.md']);
     expect(storageSnapshots).toEqual([['published.md']]);
 
-    now = 20;
+    vi.setSystemTime(20);
     const after = await sourceFactory.getSource();
     expect(after.getPages().map(({ slugs, url }) => ({ slugs, url }))).toEqual([
       { slugs: ['zulu'], url: '/custom/zulu' },
@@ -522,8 +505,8 @@ describe('createFumadocsSource', () => {
       schemaVersion: 3,
       collections: { default: { baseUrl: '/', plugins: [], entries: [entry('page', null)], metas: [] } },
     }, {
-      pageTree: { url: () => '/split' } as never,
-    })).toThrow(/pageTree\.url is unsupported; use the top-level url option/);
+      collections: { default: { pageTree: { url: () => '/split' } as never } },
+    })).toThrow(/pageTree\.url is unsupported; use the collection url option/);
   });
 
   it('falls back from a custom slug callback to the compiled slug', async () => {
@@ -531,7 +514,7 @@ describe('createFumadocsSource', () => {
     const source = await createFumadocsSource({
       schemaVersion: 3,
       collections: { default: { baseUrl: '/', plugins: [], entries: [page], metas: [] } },
-    }, { slugs: () => undefined }).getSource();
+    }, { collections: { default: { slugs: () => undefined } } }).getSource();
 
     expect(source.getPage(['frontmatter-slug'])?.path).toBe('file-name.md');
     expect(source.getPage(['file-name'])).toBeUndefined();

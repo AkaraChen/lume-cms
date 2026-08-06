@@ -2,7 +2,6 @@
   "title": "lume-cms",
   "pages": [
     "index",
-    "test",
-    "scheduled"
+    "test"
   ]
 }

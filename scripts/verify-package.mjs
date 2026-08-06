@@ -52,6 +52,9 @@ if (!files.has('dist/cli.mjs')) throw new Error('Published package is missing di
 if (!files.has('dist/schedule.mjs') || !files.has('dist/schedule.d.mts')) {
   throw new Error('Published package is missing its schedule entry');
 }
+if (!files.has('dist/schema.mjs') || !files.has('dist/schema.d.mts')) {
+  throw new Error('Published package is missing its schema entry');
+}
 if (readFileSync('dist/index.mjs', 'utf8').includes('publishAtMs')) {
   throw new Error('The core runtime bundle statically includes schedule implementation details');
 }
@@ -72,13 +75,13 @@ execFileSync('pnpm', [
 const { schedule } = await import('../dist/schedule.mjs');
 if (schedule().id !== 'schedule') throw new Error('The published schedule entry is not importable');
 const configModule = await import('../dist/config.mjs');
+const { defineI18n } = configModule;
 const {
   defaultMetaSchema,
   defaultPageSchema,
-  defineI18n,
   officialMetaSchema,
   officialPageSchema,
-} = configModule;
+} = await import('../dist/schema.mjs');
 if ('composeOnion' in configModule) throw new Error('The internal middleware composer is publicly exported');
 if (!defaultPageSchema.safeParse({ title: 'Page', tags: ['docs'] }).success) {
   throw new Error('The published default page schema is not importable');

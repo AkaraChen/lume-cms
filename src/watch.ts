@@ -7,7 +7,7 @@ import {
   type CompileStats,
   type ResolvedCollection,
 } from './compile.js';
-import { loadLumeConfig } from './config.js';
+import { loadLumeConfig } from './load-config.js';
 import type { CompiledContent } from './types.js';
 
 export interface WatchBuildResult {

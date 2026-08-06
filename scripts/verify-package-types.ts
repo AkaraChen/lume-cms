@@ -1,4 +1,11 @@
 import { createFumadocsSource, type CompiledContent } from '../dist/index.mjs';
+import {
+  defineBuildPlugin,
+  defineRuntimePlugin,
+  type LumeBuildPlugin,
+  type LumeRuntimePlugin,
+} from '../dist/config.mjs';
+import { schedule } from '../dist/schedule.mjs';
 import type { Root } from 'fumadocs-core/page-tree';
 // @ts-expect-error composeOnion is an internal implementation detail.
 import { composeOnion } from '../dist/config.mjs';
@@ -56,10 +63,22 @@ async function verifyPublishedPageTreeTypes() {
   wide.pageTree satisfies Root | Record<string, Root>;
 
   const narrowed = await createFumadocsSource(wideContent, {
-    i18n: { languages: ['en'], defaultLanguage: 'en' },
+    collections: { default: { i18n: { languages: ['en'], defaultLanguage: 'en' } } },
   }).getSource();
   narrowed.pageTree.en.children;
 }
 
 void verifyPublishedPageTreeTypes;
 void composeOnion;
+
+const buildOnly = defineBuildPlugin({ id: 'build-only' });
+const runtimeOnly = defineRuntimePlugin({ id: 'runtime-only', runtime: {} });
+const dual = schedule();
+buildOnly satisfies LumeBuildPlugin;
+runtimeOnly satisfies LumeRuntimePlugin;
+dual satisfies LumeBuildPlugin;
+dual satisfies LumeRuntimePlugin;
+// @ts-expect-error Build-only plugins are nominally incompatible with runtime plugins.
+buildOnly satisfies LumeRuntimePlugin;
+// @ts-expect-error Runtime-only plugins are nominally incompatible with build plugins.
+runtimeOnly satisfies LumeBuildPlugin;

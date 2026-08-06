@@ -1,6 +1,6 @@
 import { createFumadocsSource, type CompiledContent } from 'lume-cms';
-import { i18n } from './i18n';
+import config from '../lume.config';
 
 export function createDocsSource(content: CompiledContent) {
-  return createFumadocsSource(content, { i18n });
+  return createFumadocsSource(content, config);
 }
