@@ -182,50 +182,48 @@ async function compileBody(source: string): Promise<CompiledBody & {
   };
 }
 
-interface StableValueOptions {
-  cycles: boolean;
-  dropUndefined: boolean;
-}
+type StableValueMode = 'artifact' | 'fingerprint';
 
 function stableValue(
   value: unknown,
-  options: StableValueOptions,
+  mode: StableValueMode,
   seen = new Map<object, number>(),
 ): unknown {
-  if (options.cycles && typeof value === 'function') {
+  const fingerprint = mode === 'fingerprint';
+  if (fingerprint && typeof value === 'function') {
     return { $function: Function.prototype.toString.call(value) };
   }
-  if (options.cycles && typeof value === 'bigint') return { $bigint: value.toString() };
-  if (options.cycles && typeof value === 'symbol') return { $symbol: String(value) };
+  if (fingerprint && typeof value === 'bigint') return { $bigint: value.toString() };
+  if (fingerprint && typeof value === 'symbol') return { $symbol: String(value) };
   if (!value || typeof value !== 'object') return value;
 
-  if (options.cycles) {
+  if (fingerprint) {
     const existing = seen.get(value);
     if (existing !== undefined) return { $ref: existing };
     seen.set(value, seen.size);
   }
-  if (options.cycles && value instanceof Date) return { $date: value.toISOString() };
-  if (options.cycles && value instanceof RegExp) return { $regexp: value.toString() };
-  if (options.cycles && value instanceof Map) {
+  if (fingerprint && value instanceof Date) return { $date: value.toISOString() };
+  if (fingerprint && value instanceof RegExp) return { $regexp: value.toString() };
+  if (fingerprint && value instanceof Map) {
     return {
       $map: [...value.entries()]
-        .map(([key, item]) => [stableValue(key, options, seen), stableValue(item, options, seen)])
+        .map(([key, item]) => [stableValue(key, mode, seen), stableValue(item, mode, seen)])
         .sort(([a], [b]) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
     };
   }
-  if (options.cycles && value instanceof Set) {
+  if (fingerprint && value instanceof Set) {
     return {
       $set: [...value]
-        .map((item) => stableValue(item, options, seen))
+        .map((item) => stableValue(item, mode, seen))
         .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
     };
   }
-  if (Array.isArray(value)) return value.map((item) => stableValue(item, options, seen));
+  if (Array.isArray(value)) return value.map((item) => stableValue(item, mode, seen));
   return Object.fromEntries(
     Object.entries(value as Record<string, unknown>)
-      .filter(([, item]) => !options.dropUndefined || item !== undefined)
+      .filter(([, item]) => mode !== 'artifact' || item !== undefined)
       .sort(([a], [b]) => a.localeCompare(b))
-      .map(([key, item]) => [key, stableValue(item, options, seen)]),
+      .map(([key, item]) => [key, stableValue(item, mode, seen)]),
   );
 }
 
@@ -236,7 +234,7 @@ function digest(...values: string[]): string {
 }
 
 export function serializeCompiledContent(content: CompiledContent): string {
-  return `${JSON.stringify(stableValue(content, { cycles: false, dropUndefined: true }), null, 2)}\n`;
+  return `${JSON.stringify(stableValue(content, 'artifact'), null, 2)}\n`;
 }
 
 export class CompileDiagnosticsError extends Error {
@@ -359,6 +357,23 @@ function assertNoPrivatePageData(data: Record<string, unknown>, sourcePath: stri
   }
 }
 
+type CompileMiddleware<Context> = (
+  context: Context,
+  next: Next<Promise<void>>,
+) => Promise<void>;
+
+function collectCompileHooks<Context>(
+  plugins: readonly AnyLumePlugin[],
+  select: (plugin: AnyLumePlugin) => ((context: Context, next: Next<Promise<void>>) => void | Promise<void>) | undefined,
+): CompileMiddleware<Context>[] {
+  const hooks: CompileMiddleware<Context>[] = [];
+  for (const plugin of plugins) {
+    const hook = select(plugin);
+    if (hook) hooks.push(async (context, next) => { await hook(context, next); });
+  }
+  return hooks;
+}
+
 async function compileEntry(
   raw: string,
   sourcePath: string,
@@ -423,7 +438,7 @@ export async function compileContent(options: CompileOptions = {}): Promise<Comp
   const fingerprint = digest('lume-cms-compile-cache-v2', JSON.stringify(stableValue({
     collections: configured,
     plugins: config.plugins,
-  }, { cycles: true, dropUndefined: false })));
+  }, 'fingerprint')));
   const cache = options.cache;
   cache?.prepare(fingerprint);
   const pluginContext = { cwd, config };
@@ -442,11 +457,7 @@ export async function compileContent(options: CompileOptions = {}): Promise<Comp
     const metaSchema = definition.metaSchema ?? defaultMetaSchema;
     const plugins = definition.plugins ?? config.plugins ?? [];
     assertPluginIds(plugins);
-    const setup = plugins.flatMap((plugin) => plugin.compile?.setup
-      ? [async (context: PluginContext, next: Next<Promise<void>>) => {
-          await plugin.compile!.setup!(context, next);
-        }]
-      : []);
+    const setup = collectCompileHooks<PluginContext>(plugins, (plugin) => plugin.compile?.setup);
     await composeOnion(setup, async () => {})(pluginContext);
     const entries: CompiledEntry[] = [];
     const referenceEntries: ReferenceEntry[] = [];
@@ -487,11 +498,10 @@ export async function compileContent(options: CompileOptions = {}): Promise<Comp
       || a.path.localeCompare(b.path)
     ));
     assertUniqueSlugs(entries, i18n);
-    const collection = plugins.flatMap((plugin) => plugin.compile?.collection
-      ? [async (context: CompileCollectionContext, next: Next<Promise<void>>) => {
-          await plugin.compile!.collection!(context, next);
-        }]
-      : []);
+    const collection = collectCompileHooks<CompileCollectionContext>(
+      plugins,
+      (plugin) => plugin.compile?.collection,
+    );
     await composeOnion(collection, async () => {})({ ...pluginContext, entries });
     const diagnostics = await validateReferences(cwd, referenceEntries, baseUrl, i18n);
     allDiagnostics.push(...diagnostics);
