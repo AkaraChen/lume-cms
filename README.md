@@ -68,16 +68,18 @@ import { z } from 'zod';
 import { defaultMetaSchema, defaultPageSchema, defineConfig } from 'lume-cms/config';
 
 export default defineConfig({
-  content: {
-    schema: defaultPageSchema.extend({ category: z.enum(['docs', 'blog']) }),
-    metaSchema: defaultMetaSchema.extend({ badge: z.string().optional() }),
+  collections: {
+    default: {
+      schema: defaultPageSchema.extend({ category: z.enum(['docs', 'blog']) }),
+      metaSchema: defaultMetaSchema.extend({ badge: z.string().optional() }),
+    },
   },
 });
 ```
 
 Both slots accept any Standard Schema instead, including Valibot 1 and custom implementations. Supplying one is an explicit replacement: include every public field that should survive in compiled data. The private `draft` and `slug` fields remain reserved and cannot be redefined by the public schema.
 
-Schema additions in a future compatible Fumadocs release flow into the defaults because lume-cms imports the official objects rather than copying their shapes. Every Fumadocs upgrade must run the schema conformance tests and review deterministic output changes. Additive official fields remain schema v2; removals or incompatible type changes require a compiled-schema migration. A user-supplied replacement intentionally opts out of automatic additions until that schema is updated.
+Schema additions in a future compatible Fumadocs release flow into the defaults because lume-cms imports the official objects rather than copying their shapes. Every Fumadocs upgrade must run the schema conformance tests and review deterministic output changes. Changes that make existing compiled artifacts invalid require a compiled-schema migration. A user-supplied replacement intentionally opts out of automatic additions until that schema is updated.
 
 ## Internationalization
 
@@ -94,8 +96,9 @@ export const i18n = defineI18n({
 });
 
 export default defineConfig({
-  baseUrl: '/docs',
-  i18n,
+  collections: {
+    default: { baseUrl: '/docs', i18n },
+  },
 });
 ```
 
@@ -135,7 +138,7 @@ Every new build stores both text representations in `entry.body`:
 
 The pure-Markdown degradation is intentionally non-executing and deterministic: ESM imports/exports and JavaScript expressions are removed; MDX/JSX wrapper tags and attributes are removed while their Markdown children are retained. A self-closing component with a literal `title` or `label` becomes plain text, or a Markdown link when it also has a literal `href`; other self-closing components disappear. Standard Markdown and GFM constructs such as headings, links, tables, lists, and fenced code remain. Component-specific rendering is not executed or guessed beyond that portable title/link fallback—authors who need richer text from a visual component should put it in the component's children.
 
-The loader exposes the two values as `page.data.content` (original) and `page.data.processedMarkdown` (export form). Older schema v2 artifacts without the additive field fall back to their original body until rebuilt. The example's shared `getLLMText()` uses `processedMarkdown`, so the full and per-page export routes cannot leak unexpanded JSX or imports.
+The loader exposes the two values as `page.data.content` (original) and `page.data.processedMarkdown` (export form). The example's shared `getLLMText()` uses `processedMarkdown`, so the full and per-page export routes cannot leak unexpanded JSX or imports.
 
 This intentionally duplicates body text in the JSON artifact. In the three-page example fixture it adds 542 bytes uncompressed and 48 bytes after Brotli (12,639 → 13,181 raw; 2,214 → 2,262 Brotli). Growth is linear and can approach one extra normalized body per page before compression; large-site sharding/lazy-loading thresholds remain KIT-626's benchmark decision rather than being mixed into this compatibility layer.
 
@@ -186,8 +189,8 @@ const requestNow = cache(() => new Date());
 export const { sources, getAllSources, getAllPages } = createFumadocsSources(content, {
   now: requestNow,
   collections: {
-    docs: collection({ baseUrl: '/docs', plugins: [schedule()] }),
-    blog: collection({ baseUrl: '/blog', plugins: [schedule()] }),
+    docs: collection({ plugins: [schedule()] }),
+    blog: collection({ plugins: [schedule()] }),
   },
 });
 
@@ -195,7 +198,7 @@ export const { getSource: getDocsSource } = sources.docs;
 export const { getSource: getBlogSource } = sources.blog;
 ```
 
-`collection()` is a type-preserving identity helper: each nested source keeps the page-data fields contributed by its own plugin tuple. The runtime requires the compiled and configured collection names to match in both directions and rejects duplicate `baseUrl` values. Runtime `baseUrl` values are compatibility confirmations for artifacts created before the field was persisted; conflicting values fail immediately. `getAllPages()` is the visibility-safe union for sitemap and text exports. The singular `createFumadocsSource()` remains available only when JSON contains exactly one collection.
+`collection()` is a type-preserving identity helper: each nested source keeps the page-data fields contributed by its own plugin tuple. The runtime requires the compiled and configured collection names to match in both directions and rejects duplicate compiled `baseUrl` values. `getAllPages()` is the visibility-safe union for sitemap and text exports. The singular `createFumadocsSource()` is the first-class entry point when JSON contains exactly one collection.
 
 Plugins run on both sides of the JSON boundary, so each compile collection and runtime source must register the same ordered plugin list. The compiled JSON records plugin ids and the runtime fails immediately if either side is missing, extra, duplicated, or reordered. Fumadocs loader plugins can still be supplied separately through `loaderPlugins`.
 

@@ -266,23 +266,10 @@ function assertUniqueSlugs(entries: CompiledEntry[], i18n?: CompiledI18nConfig) 
   }
 }
 
-let warnedDeprecatedContent = false;
-
 function normalizedCollections(config: LumeConfig) {
-  if (config.collections && config.content) {
-    throw new TypeError('Configure either `collections` or deprecated `content`, not both');
-  }
-  if (config.collections) {
-    if (Object.keys(config.collections).length === 0) throw new TypeError('lume-cms requires at least one collection');
-    return config.collections;
-  }
-  if (!warnedDeprecatedContent) {
-    process.emitWarning('lume-cms `content` config is deprecated; migrate to `collections`', {
-      code: 'LUME_CMS_DEPRECATED_CONTENT',
-    });
-    warnedDeprecatedContent = true;
-  }
-  return { default: config.content ?? {} };
+  const collections = config.collections ?? { default: {} };
+  if (Object.keys(collections).length === 0) throw new TypeError('lume-cms requires at least one collection');
+  return collections;
 }
 
 async function collectionFiles(

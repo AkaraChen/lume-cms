@@ -10,10 +10,10 @@ import {
 import { schedule } from '../src/schedule.js';
 import type { CompiledContent, CompiledEntry } from '../src/types.js';
 
-const body = { markdown: '', code: '', toc: [], structuredData: { headings: [], contents: [] } };
+const body = { markdown: '', processedMarkdown: '', code: '', toc: [], structuredData: { headings: [], contents: [] } };
 
 function content(plugins: string[] = [], entries: CompiledEntry[] = []): CompiledContent {
-  return { schemaVersion: 3, collections: { default: { plugins, entries } } };
+  return { schemaVersion: 3, collections: { default: { baseUrl: '/', plugins, entries, metas: [] } } };
 }
 
 describe('plugin runtime', () => {
@@ -170,11 +170,11 @@ describe('plugin runtime', () => {
     })).toThrow(/Duplicate lume-cms plugin id/);
   });
 
-  it('rejects legacy v1 and v2 content with a migration message', () => {
+  it('rejects unsupported compiled schemas', () => {
     expect(() => createFumadocsSource({ schemaVersion: 1, entries: [] } as never))
-      .toThrow(/schema version 1; rebuild content/);
+      .toThrow(/Unsupported lume-cms compiled content schema/);
     expect(() => createFumadocsSource({ schemaVersion: 2, entries: [] } as never))
-      .toThrow(/schema version 2; rebuild content/);
+      .toThrow(/Unsupported lume-cms compiled content schema/);
   });
 
   it('combines hide reasons with AND and falls back to slug ordering', async () => {
@@ -219,18 +219,18 @@ describe('plugin runtime', () => {
     const sources = createFumadocsSources({
       schemaVersion: 3,
       collections: {
-        blog: { plugins: ['schedule'], entries: [{
+        blog: { baseUrl: '/blog', plugins: ['schedule'], entries: [{
           slug: ['post'], path: 'post.md', draft: false, data: { title: 'Post' },
           ext: { schedule: { publishDate: null, publishAtMs: null } }, body,
-        }] },
-        docs: { plugins: [], entries: [{
+        }], metas: [] },
+        docs: { baseUrl: '/docs', plugins: [], entries: [{
           slug: ['page'], path: 'page.md', draft: false, data: { title: 'Page' }, ext: {}, body,
-        }] },
+        }], metas: [] },
       },
     }, {
       collections: {
-        blog: collection({ baseUrl: '/blog', plugins: [schedule()] }),
-        docs: collection({ baseUrl: '/docs', plugins: [] }),
+        blog: collection({ plugins: [schedule()] }),
+        docs: collection({ plugins: [] }),
       },
     }).sources;
     const blog = (await sources.blog.getSource()).getPages()[0]!;

@@ -9,14 +9,16 @@ type Expect<Value extends true> = Value;
 
 const nonI18nContent = {
   schemaVersion: 3,
-  collections: { default: { plugins: [], entries: [] } },
+  collections: { default: { baseUrl: '/', plugins: [], entries: [], metas: [] } },
 } satisfies CompiledContent;
 
 const i18nContent = {
   schemaVersion: 3,
   collections: { default: {
+    baseUrl: '/',
     plugins: [],
     entries: [],
+    metas: [],
     i18n: {
       languages: ['en'],
       defaultLanguage: 'en',

@@ -49,7 +49,7 @@ describe('Fumadocs i18n source contract', () => {
       cwd,
       write: false,
       strict: true,
-      config: { content: { baseUrl: '/docs', i18n }, plugins: [schedule()] },
+      config: { collections: { default: { baseUrl: '/docs', i18n } }, plugins: [schedule()] },
     });
     const compiled = content.collections.default!;
 
@@ -73,7 +73,7 @@ describe('Fumadocs i18n source contract', () => {
       cwd,
       write: false,
       strict: true,
-      config: { content: { baseUrl: '/docs', i18n }, plugins: [schedule()] },
+      config: { collections: { default: { baseUrl: '/docs', i18n } }, plugins: [schedule()] },
     })));
 
     let now = 999;
@@ -151,7 +151,7 @@ describe('Fumadocs i18n source contract', () => {
       hideLocale: 'default-locale',
       parser: 'dir',
     });
-    const content = await compileContent({ cwd, write: false, config: { content: { baseUrl: '/docs', i18n } } });
+    const content = await compileContent({ cwd, write: false, config: { collections: { default: { baseUrl: '/docs', i18n } } } });
     const compiled = content.collections.default!;
     const source = await createFumadocsSource(content).getSource();
 
@@ -177,7 +177,7 @@ describe('Fumadocs i18n source contract', () => {
     });
     const i18n = defineI18n({ languages: ['en', 'fr'], defaultLanguage: 'en', parser: 'dir' });
 
-    await expect(compileContent({ cwd, write: false, config: { content: { i18n } } }))
+    await expect(compileContent({ cwd, write: false, config: { collections: { default: { i18n } } } }))
       .rejects.toThrow('Duplicate content slug in locale "en": same');
   });
 
@@ -192,7 +192,7 @@ describe('Fumadocs i18n source contract', () => {
       fallbackLanguage: null,
       parser: 'dot',
     });
-    const content = await compileContent({ cwd, write: false, config: { content: { i18n } } });
+    const content = await compileContent({ cwd, write: false, config: { collections: { default: { i18n } } } });
 
     expect(content.collections.default?.diagnostics).toMatchObject([{
       code: 'missing-page',
@@ -206,7 +206,7 @@ describe('Fumadocs i18n source contract', () => {
     const content = await compileContent({
       cwd,
       write: false,
-      config: { content: { i18n: defineI18n({ languages: ['en', 'zh'], defaultLanguage: 'en' }) } },
+      config: { collections: { default: { i18n: defineI18n({ languages: ['en', 'zh'], defaultLanguage: 'en' }) } } },
     });
 
     expect(() => createFumadocsSource(content, {
@@ -242,12 +242,12 @@ describe('Fumadocs i18n source contract', () => {
     });
 
     const valid = await compileContent({
-      cwd, write: false, strict: true, config: { content: { baseUrl: '/docs', i18n } },
+      cwd, write: false, strict: true, config: { collections: { default: { baseUrl: '/docs', i18n } } },
     });
     expect(valid.collections.default?.diagnostics).toEqual([]);
 
     await writeFile(path.join(cwd, 'content/index.fr.mdx'), '---\ntitle: Français\n---\n[Missing](/en/docs/missing)');
-    const invalid = await compileContent({ cwd, write: false, config: { content: { baseUrl: '/docs', i18n } } });
+    const invalid = await compileContent({ cwd, write: false, config: { collections: { default: { baseUrl: '/docs', i18n } } } });
     expect(invalid.collections.default?.diagnostics).toMatchObject([{
       code: 'missing-page',
       sourcePath: 'content/index.fr.mdx',
@@ -270,7 +270,7 @@ describe('Fumadocs i18n source contract', () => {
     });
 
     const content = await compileContent({
-      cwd, write: false, strict: true, config: { content: { baseUrl: '/docs', i18n } },
+      cwd, write: false, strict: true, config: { collections: { default: { baseUrl: '/docs', i18n } } },
     });
     expect(content.collections.default?.diagnostics).toEqual([]);
   });

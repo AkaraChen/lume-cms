@@ -25,6 +25,7 @@ function entry(
     },
     body: {
       markdown: id,
+      processedMarkdown: id,
       code: '',
       toc: [],
       structuredData: { headings: [], contents: [{ content: `${id} searchable body`, heading: undefined }] },
@@ -66,6 +67,7 @@ describe('dynamic Fumadocs search contract', () => {
       schemaVersion: 3,
       collections: {
         docs: {
+          baseUrl: '/',
           i18n: undefined,
           plugins: ['schedule', 'expiry'],
           entries: [
@@ -74,6 +76,7 @@ describe('dynamic Fumadocs search contract', () => {
             entry('draft', { draft: true, tags: ['guide'] }),
             entry('expired', { expired: true, tags: ['guide'] }),
           ],
+          metas: [],
         },
       },
     } satisfies CompiledContent;
@@ -117,6 +120,7 @@ describe('dynamic Fumadocs search contract', () => {
             entry('english-only', { locale: 'en' }),
             entry('chinese-only', { locale: 'zh' }),
           ],
+          metas: [],
         },
       },
     } satisfies CompiledContent;
