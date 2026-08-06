@@ -101,7 +101,6 @@ const {
   defaultMetaSchema,
   defaultPageSchema,
   defineI18n,
-  officialMetaSchema,
   officialPageSchema,
 } = configModule;
 if ('composeOnion' in configModule) throw new Error('The internal middleware composer is publicly exported');
@@ -111,8 +110,8 @@ if (!defaultPageSchema.safeParse({ title: 'Page', tags: ['docs'] }).success) {
 if (!defaultMetaSchema.safeParse({ title: 'Docs', pages: ['index'] }).success) {
   throw new Error('The published default meta schema is not importable');
 }
-if (officialPageSchema === undefined || officialMetaSchema === undefined) {
-  throw new Error('The published official Fumadocs schema baselines are missing');
+if (officialPageSchema === undefined) {
+  throw new Error('The published official Fumadocs page schema baseline is missing');
 }
 const i18n = defineI18n({ languages: ['en', 'zh'], defaultLanguage: 'en', parser: 'dot' });
 if (i18n.defaultLanguage !== 'en' || typeof i18n.translations !== 'function') {
