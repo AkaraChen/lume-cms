@@ -1,9 +1,9 @@
 import { stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createGetUrl, PathUtils } from 'fumadocs-core/source';
 import type { CompiledEntry, CompileDiagnostic } from './types.js';
 import {
-  i18nUrl,
   localePathKey,
   parseI18nPath,
   type CompiledI18nConfig,
@@ -127,7 +127,7 @@ function splitTarget(target: string): { pathname: string; hash?: string } | unde
 }
 
 function normalizedVirtualPath(value: string): string {
-  return path.posix.normalize(value.replace(/^\/+/, '')).replace(/\/+$/, '');
+  return PathUtils.normalize(value.replace(/^\/+/, ''));
 }
 
 function stem(value: string): string {
@@ -170,8 +170,9 @@ function absoluteTarget(
 ): { locale: string; slug: string } | undefined {
   const normalized = pathname.replace(/\/+$/, '') || '/';
   const locales = !i18n || i18n.hideLocale === 'always' ? [sourceLocale] : i18n.languages;
+  const getUrl = createGetUrl(baseUrl, i18n);
   return locales
-    .map((locale) => ({ locale, root: i18nUrl(baseUrl, [], locale, i18n).replace(/\/+$/, '') || '/' }))
+    .map((locale) => ({ locale, root: getUrl([], locale).replace(/\/+$/, '') || '/' }))
     .filter(({ root }) => normalized === root || root === '/' || normalized.startsWith(`${root}/`))
     .sort((a, b) => b.root.length - a.root.length)
     .map(({ locale, root }) => ({

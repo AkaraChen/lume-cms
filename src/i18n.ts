@@ -69,18 +69,6 @@ export function parseI18nPath(filePath: string, i18n?: CompiledI18nConfig) {
   return { path: filePath, locale: i18n.defaultLanguage, locales: [i18n.defaultLanguage] };
 }
 
-export function i18nUrl(baseUrl: string, slugs: string[], locale: string, i18n?: CompiledI18nConfig) {
-  const segments = [...baseUrl.split('/'), ...slugs];
-  if (
-    i18n
-    && i18n.hideLocale !== 'always'
-    && (i18n.hideLocale !== 'default-locale' || locale !== i18n.defaultLanguage)
-  ) {
-    segments.unshift(locale);
-  }
-  return `/${segments.filter(Boolean).join('/')}`;
-}
-
 export function localePathKey(locale: string, value: string) {
   return `${locale}\0${path.posix.normalize(value)}`;
 }
