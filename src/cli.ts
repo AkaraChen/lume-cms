@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { parseCliArgs } from './cli-args.js';
 import type { CompileDiagnostic } from './types.js';
 
 function reportDiagnostics(diagnostics: CompileDiagnostic[]) {
@@ -15,19 +16,8 @@ function reportError(error: unknown) {
 }
 
 async function main() {
-  const args = process.argv.slice(2);
-  const command = args[0] ?? 'build';
-  const flags = args.slice(1);
-  const uniqueFlags = new Set(flags);
-  if (
-    command !== 'build'
-    || uniqueFlags.size !== flags.length
-    || flags.some((flag) => flag !== '--watch' && flag !== '--strict')
-  ) {
-    throw new Error('Usage: lume-cms build [--watch] [--strict]');
-  }
-  const strict = uniqueFlags.has('--strict');
-  if (uniqueFlags.has('--watch')) {
+  const { watch, strict } = parseCliArgs(process.argv.slice(2));
+  if (watch) {
     const { watchContent } = await import('./watch.js');
     const watcher = await watchContent({
       strict,

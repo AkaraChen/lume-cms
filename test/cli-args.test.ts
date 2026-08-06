@@ -1,0 +1,40 @@
+import { describe, expect, it } from 'vitest';
+import { CLI_USAGE, parseCliArgs } from '../src/cli-args.js';
+
+describe('parseCliArgs', () => {
+  it.each([
+    { argv: [], expected: { command: 'build', watch: false, strict: false } },
+    { argv: ['build'], expected: { command: 'build', watch: false, strict: false } },
+    { argv: ['build', '--watch'], expected: { command: 'build', watch: true, strict: false } },
+    { argv: ['build', '--strict'], expected: { command: 'build', watch: false, strict: true } },
+    { argv: ['build', '--watch', '--strict'], expected: { command: 'build', watch: true, strict: true } },
+    { argv: ['--watch', 'build'], expected: { command: 'build', watch: true, strict: false } },
+    { argv: ['build', '--'], expected: { command: 'build', watch: false, strict: false } },
+  ])('parses $argv', ({ argv, expected }) => {
+    expect(parseCliArgs(argv)).toEqual(expected);
+  });
+
+  it.each([
+    ['serve'],
+    ['build', 'extra'],
+    ['build', '--nope'],
+    ['build', '-w'],
+    ['build', '--watch=true'],
+    ['build', '--watch', '--watch'],
+    ['build', '--strict', '--strict'],
+    ['build', '--', 'x'],
+  ])('rejects invalid arguments: %j', (...argv) => {
+    expect(() => parseCliArgs(argv)).toThrowError(new Error(CLI_USAGE));
+  });
+
+  it('does not expose native parseArgs error details', () => {
+    try {
+      parseCliArgs(['build', '--nope']);
+      expect.unreachable('expected parsing to fail');
+    } catch (error) {
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).toBe(CLI_USAGE);
+      expect((error as Error).message).not.toMatch(/ERR_PARSE_ARGS|place it at the end/);
+    }
+  });
+});
