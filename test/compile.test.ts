@@ -8,7 +8,7 @@ import * as v from 'valibot';
 import { z } from 'zod';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import { CompileCache, compileContent, serializeCompiledContent } from '../src/compile.js';
-import { defaultMetaSchema, defaultPageSchema } from '../src/schema.js';
+import { defaultMetaSchema, defaultPageSchema } from '../src/config.js';
 import { createFumadocsSource } from '../src/index.js';
 import { schedule } from '../src/schedule.js';
 import {

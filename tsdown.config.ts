@@ -4,7 +4,6 @@ export default defineConfig({
   entry: {
     index: 'src/index.ts',
     config: 'src/config.ts',
-    schema: 'src/schema.ts',
     schedule: 'src/schedule.ts',
     cli: 'src/cli.ts',
   },
@@ -12,4 +11,5 @@ export default defineConfig({
   clean: true,
   format: 'esm',
   platform: 'node',
+  deps: { neverBundle: ['zod'] },
 });

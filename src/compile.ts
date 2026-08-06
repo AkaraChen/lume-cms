@@ -7,9 +7,8 @@ import { frontmatter } from 'fumadocs-core/content/md/frontmatter';
 import { mdxPreset } from 'fumadocs-core/content/mdx/preset-runtime';
 import { defaultStringifier } from 'fumadocs-core/mdx-plugins/stringifier';
 import { getSlugs, PathUtils } from 'fumadocs-core/source';
-import type { ContentSchema, LumeConfig } from './config.js';
+import { defaultMetaSchema, defaultPageSchema, type ContentSchema, type LumeConfig } from './config.js';
 import { loadLumeConfig } from './load-config.js';
-import { defaultMetaSchema, defaultPageSchema } from './schema.js';
 import type {
   CompiledBody,
   CompiledCollection,

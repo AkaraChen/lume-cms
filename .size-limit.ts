@@ -3,7 +3,6 @@ import packageJson from './package.json';
 const exportLimits: Partial<Record<string, string>> = {
   '.': '3.0 kB',
   './config': '480 B',
-  './schema': '550 B',
   './schedule': '710 B',
 };
 

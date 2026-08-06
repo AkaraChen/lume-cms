@@ -34,7 +34,7 @@ export default defineConfig({
 
 Each collection owns its root, root-relative globs, schema, public `baseUrl`, runtime loader options, and plugin list. Plugins never apply globally: here `schedule()` extends and filters `blog`, while `docs` has no scheduling field or behavior. `collection()` preserves that plugin tuple for runtime page-data inference. A source file may belong to only one collection. Omitting `collections` creates one collection named `default`. Schema-version 2 JSON must be rebuilt; the runtime intentionally does not guess a migration.
 
-The package boundaries keep the core slim: `lume-cms/config` contains only config/plugin identities and types, `lume-cms/schema` owns the optional Zod-backed defaults, `lume-cms/schedule` owns scheduling, and the root `lume-cms` entry owns the server runtime. Config loading through c12 is private to the CLI, so importing `lume.config.ts` from a server module does not pull the loader into the application bundle.
+The package boundaries keep the core slim without adding API-only splits: `lume-cms/config` owns config, plugin identities, and the default schemas; Zod remains an external dependency instead of being bundled. `lume-cms/schedule` owns scheduling, and the root `lume-cms` entry owns the server runtime. Config loading through c12 is private to the CLI, so importing `lume.config.ts` from a server module does not pull the loader into the application bundle.
 
 With no schema override, lume-cms imports Fumadocs' locked `pageSchema` and `metaSchema` directly. The configuration accepts the Standard Schema interface, so Valibot 1.x, Zod 4, and other conforming implementations can replace them without an adapter. Plugin-owned fields such as `publishDate` stay out of public page data. Each collection persists its normalized `baseUrl`, so its reference validation and runtime Fumadocs loader cannot drift.
 
@@ -67,8 +67,7 @@ For the Fumadocs-style `.extend()` workflow, install Zod and extend the exported
 
 ```ts
 import { z } from 'zod';
-import { defineConfig } from 'lume-cms/config';
-import { defaultMetaSchema, defaultPageSchema } from 'lume-cms/schema';
+import { defaultMetaSchema, defaultPageSchema, defineConfig } from 'lume-cms/config';
 
 export default defineConfig({
   collections: {

@@ -16,10 +16,11 @@ import type {
 import type { I18nConfig } from 'fumadocs-core/i18n';
 import { createElement, type ComponentType } from 'react';
 import * as runtime from 'react/jsx-runtime';
-import { collection, type CollectionConfig, type LumeConfig } from './config.js';
+import type { CollectionConfig, LumeConfig } from './config.js';
 import type { CompiledBody, CompiledCollection, CompiledContent, CompiledEntry } from './types.js';
 import {
   assertPluginIds,
+  collection,
   composeOnion,
   isBuildPlugin,
   isRuntimePlugin,
@@ -102,7 +103,7 @@ type InferSingleCollection<Content extends CompiledContent> =
 
 export type { CompiledContent } from './types.js';
 export type { PreviewOptions } from './plugin.js';
-export { collection } from './config.js';
+export { collection } from './plugin.js';
 
 export type FumadocsCollectionOptions<
   Plugins extends readonly AnyLumePlugin[] = readonly AnyLumePlugin[],

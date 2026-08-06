@@ -20,10 +20,6 @@
       "types": "./dist/config.d.mts",
       "import": "./dist/config.mjs"
     },
-    "./schema": {
-      "types": "./dist/schema.d.mts",
-      "import": "./dist/schema.mjs"
-    },
     "./schedule": {
       "types": "./dist/schedule.d.mts",
       "import": "./dist/schedule.mjs"

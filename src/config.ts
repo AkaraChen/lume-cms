@@ -1,5 +1,7 @@
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import type { I18nConfig } from 'fumadocs-core/i18n';
+import { metaSchema as fumadocsMetaSchema, pageSchema as fumadocsPageSchema } from 'fumadocs-core/source/schema';
+import { z } from 'zod';
 import type {
   ContentStorage,
   ContentStorageMetaFile,
@@ -13,6 +15,7 @@ import type { AnyLumePlugin, InferPluginData } from './plugin.js';
 export { defineI18n } from 'fumadocs-core/i18n';
 export type { I18nConfig } from 'fumadocs-core/i18n';
 export {
+  collection,
   defineBuildPlugin,
   definePlugin,
   defineRuntimePlugin,
@@ -39,6 +42,15 @@ export type {
 } from './plugin.js';
 
 export type ContentSchema = StandardSchemaV1<unknown, Record<string, unknown>>;
+
+/** The exact Fumadocs baseline, exported so Zod users can extend it directly. */
+export const officialPageSchema = fumadocsPageSchema;
+export const officialMetaSchema = fumadocsMetaSchema;
+export const defaultPageSchema = officialPageSchema.extend({
+  /** lume-cms public page-data extension, used by search integrations. */
+  tags: z.array(z.string()).optional(),
+});
+export const defaultMetaSchema = officialMetaSchema;
 
 type CollectionStorage<Plugins extends readonly AnyLumePlugin[]> = ContentStorage<
   ContentStoragePageFile<undefined, PageData & InferPluginData<Plugins>>,
@@ -81,13 +93,6 @@ export interface LumeConfig<
 > {
   collections?: Collections;
   output?: string;
-}
-
-/** Preserve each collection's plugin tuple for runtime page-data inference. */
-export function collection<const Plugins extends readonly AnyLumePlugin[] = []>(
-  config: CollectionConfig<Plugins>,
-): CollectionConfig<Plugins> {
-  return config;
 }
 
 export function defineConfig<const Config extends LumeConfig>(config: Config): Config {

@@ -1,5 +1,5 @@
 import type { StandardSchemaV1 } from '@standard-schema/spec';
-import type { LumeConfig } from './config.js';
+import type { CollectionConfig, LumeConfig } from './config.js';
 import type { CompiledEntry } from './types.js';
 
 export interface BuildPluginContext {
@@ -168,6 +168,13 @@ export type LumePlugin<Frontmatter extends object = object, Data extends object 
 export type AnyBuildPlugin = LumeBuildPlugin<any, any>;
 export type AnyRuntimePlugin = LumeRuntimePlugin<any, any>;
 export type AnyLumePlugin = AnyBuildPlugin | AnyRuntimePlugin;
+
+/** Preserve each collection's plugin tuple for runtime page-data inference. */
+export function collection<const Plugins extends readonly AnyLumePlugin[] = []>(
+  config: CollectionConfig<Plugins>,
+): CollectionConfig<Plugins> {
+  return config;
+}
 
 type UnionToIntersection<Union> =
   (Union extends unknown ? (value: Union) => void : never) extends (value: infer Intersection) => void
