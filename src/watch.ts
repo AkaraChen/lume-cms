@@ -50,7 +50,9 @@ export async function watchContent(options: WatchContentOptions = {}): Promise<C
   let closed = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let buildChain = Promise.resolve<WatchBuildResult | undefined>(undefined);
-  let watchedRoots = new Set<string>();
+  let activeRoots = new Set<string>();
+  let watchedCoverage = new Set<string>();
+  const inactiveCoverage = new Set<string>();
 
   function externalRoots(collections: readonly ResolvedCollection[]) {
     return new Set(collections.map((collection) => collection.root).filter((root) => {
@@ -59,15 +61,44 @@ export async function watchContent(options: WatchContentOptions = {}): Promise<C
     }));
   }
 
+  function recursiveCoverage(roots: ReadonlySet<string>) {
+    return new Set([...roots].filter((root) => ![...roots].some((candidate) => (
+      candidate !== root && containsPath(candidate, root)
+    ))));
+  }
+
+  function containsPath(parent: string, child: string) {
+    const relative = path.relative(parent, child);
+    return relative === '' || (relative !== '..'
+      && !relative.startsWith(`..${path.sep}`)
+      && !path.isAbsolute(relative));
+  }
+
   async function updateWatchTargets(collections: readonly ResolvedCollection[], output: string) {
-    const nextRoots = externalRoots(collections);
-    await Promise.all([...watchedRoots]
-      .filter((root) => !nextRoots.has(root))
-      .map((root) => watcher.unwatch(root)));
-    for (const root of nextRoots) {
-      if (!watchedRoots.has(root)) watcher.add(root);
+    const nextActiveRoots = externalRoots(collections);
+    const nextCoverage = new Set([...watchedCoverage].filter((watchedRoot) => (
+      [...nextActiveRoots].some((activeRoot) => (
+        containsPath(watchedRoot, activeRoot) || containsPath(activeRoot, watchedRoot)
+      ))
+    )));
+    activeRoots = nextActiveRoots;
+    const removedCoverage = [...watchedCoverage].filter((root) => !nextCoverage.has(root));
+    await Promise.all(removedCoverage.map((root) => watcher.unwatch(root)));
+    for (const root of removedCoverage) inactiveCoverage.add(root);
+    for (const root of [...inactiveCoverage]) {
+      if (![...nextActiveRoots].some((activeRoot) => (
+        containsPath(root, activeRoot) || containsPath(activeRoot, root)
+      ))) continue;
+      watcher.add(root);
+      nextCoverage.add(root);
+      inactiveCoverage.delete(root);
     }
-    watchedRoots = nextRoots;
+    for (const root of recursiveCoverage(nextActiveRoots)) {
+      if ([...nextCoverage].some((watchedRoot) => containsPath(watchedRoot, root))) continue;
+      watcher.add(root);
+      nextCoverage.add(root);
+    }
+    watchedCoverage = nextCoverage;
     outputPaths.clear();
     outputPaths.add(output);
   }
@@ -111,7 +142,7 @@ export async function watchContent(options: WatchContentOptions = {}): Promise<C
     const absolutePath = path.resolve(watchedPath);
     const relative = path.relative(cwd, absolutePath);
     if (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)) return true;
-    return [...watchedRoots].some((root) => (
+    return [...activeRoots].some((root) => (
       absolutePath === root || absolutePath.startsWith(`${root}${path.sep}`)
     ));
   }
