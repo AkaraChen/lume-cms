@@ -1,4 +1,4 @@
-import * as v from 'valibot';
+import * as z from 'zod/mini';
 import {
   definePlugin,
   defineTimeGate,
@@ -8,7 +8,7 @@ import {
   type RuntimeContext,
 } from './plugin.js';
 
-const OFFSET_DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/;
+const offsetDateTime = z.iso.datetime({ offset: true });
 
 interface ScheduleExtension {
   publishDate: string | null;
@@ -40,19 +40,17 @@ export function schedule(options: ScheduleOptions = {}): SchedulePlugin {
   return definePlugin<{ publishDate?: string }, { publishDate: string | null }>({
     id: 'schedule',
     frontmatter: {
-      schema: v.object({ [field]: v.optional(v.string()) }),
+      schema: z.object({ [field]: z.optional(z.string()) }),
     },
     build: {
       cacheKey: JSON.stringify({ field, sort: options.sort }),
       entry({ frontmatter, sourcePath }) {
-        const value = frontmatter[field];
-        if (value === undefined || value === null) return { publishDate: null, publishAtMs: null };
-        if (typeof value !== 'string' || !OFFSET_DATE_TIME.test(value)) {
+        const value = frontmatter[field] as string | undefined;
+        if (value === undefined) return { publishDate: null, publishAtMs: null };
+        if (!z.safeParse(offsetDateTime, value).success) {
           throw new Error(`${sourcePath}: invalid ${field} ${JSON.stringify(value)}; expected ISO 8601 with Z or an offset`);
         }
-        const publishAtMs = new Date(value).getTime();
-        if (!Number.isFinite(publishAtMs)) throw new Error(`${sourcePath}: invalid ${field} ${JSON.stringify(value)}`);
-        return { publishDate: value, publishAtMs };
+        return { publishDate: value, publishAtMs: new Date(value).getTime() };
       },
     },
     runtime: {

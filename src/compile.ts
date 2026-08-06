@@ -7,6 +7,7 @@ import { frontmatter } from 'fumadocs-core/content/md/frontmatter';
 import { mdxPreset } from 'fumadocs-core/content/mdx/preset-runtime';
 import { defaultStringifier } from 'fumadocs-core/mdx-plugins/stringifier';
 import { getSlugs, PathUtils } from 'fumadocs-core/source';
+import * as z from 'zod/mini';
 import { defaultMetaSchema, defaultPageSchema, type ContentSchema, type LumeConfig } from './config.js';
 import { loadLumeConfig } from './load-config.js';
 import type {
@@ -234,7 +235,7 @@ export function serializeCompiledContent(content: CompiledContent): string {
   return `${JSON.stringify(stableValue(content, 'artifact'), null, 2)}\n`;
 }
 
-export class CompileDiagnosticsError extends Error {
+class CompileDiagnosticsError extends Error {
   constructor(public readonly diagnostics: CompileDiagnostic[]) {
     super(`Content reference validation failed with ${diagnostics.length} diagnostic${diagnostics.length === 1 ? '' : 's'}`);
     this.name = 'CompileDiagnosticsError';
@@ -359,22 +360,15 @@ async function parseMeta(
     const detail = error instanceof Error ? `: ${error.message}` : '';
     throw new Error(`${sourcePath}: invalid meta.json${detail}`);
   }
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error(`${sourcePath}: invalid meta.json: expected a JSON object`);
-  }
+  // The meta schema owns shape validation, including rejecting non-objects.
   return await validate(schema, value, sourcePath, 'meta.json') as CompiledMeta['data'];
 }
 
-function privateFrontmatter(value: unknown, sourcePath: string): { draft: boolean; slug?: string } {
-  const data = value as Record<string, unknown>;
-  if (data.draft !== undefined && typeof data.draft !== 'boolean') {
-    throw new Error(`${sourcePath}: invalid private frontmatter: draft must be a boolean`);
-  }
-  if (data.slug !== undefined && typeof data.slug !== 'string') {
-    throw new Error(`${sourcePath}: invalid private frontmatter: slug must be a string`);
-  }
-  return { draft: data.draft === true, slug: data.slug as string | undefined };
-}
+/** Reserved fields lume-cms owns; they never reach the user's page-data schema. */
+const privateFrontmatterSchema = z.object({
+  draft: z._default(z.boolean('draft must be a boolean'), false),
+  slug: z.optional(z.string('slug must be a string')),
+});
 
 function assertNoPrivatePageData(data: Record<string, unknown>, sourcePath: string) {
   if ('draft' in data || 'slug' in data) {
@@ -409,7 +403,10 @@ async function compileEntry(
 ): Promise<CompiledUnit> {
   const parsed = frontmatter(raw);
   const localizedPath = parseI18nPath(contentPath, i18n);
-  const privateData = privateFrontmatter(parsed.data, sourcePath);
+  const privateData = await validate(privateFrontmatterSchema, parsed.data, sourcePath, 'private frontmatter') as {
+    draft: boolean;
+    slug?: string;
+  };
   const { draft: _draft, slug: _slug, ...publicFrontmatter } = parsed.data as Record<string, unknown>;
   const data = { ...await validate(schema, publicFrontmatter, sourcePath, 'frontmatter') };
   assertNoPrivatePageData(data, sourcePath);

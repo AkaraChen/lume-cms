@@ -27,6 +27,7 @@
   },
   "scripts": {
     "build": "tsdown",
+    "knip": "knip",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
@@ -41,8 +42,7 @@
     "c12": "^3.3.3",
     "chokidar": "^4.0.3",
     "fast-glob": "^3.3.3",
-    "server-only": "^0.0.1",
-    "valibot": "^1.1.0"
+    "server-only": "^0.0.1"
   },
   "peerDependencies": {
     "fumadocs-core": "^16.0.0",
@@ -62,12 +62,14 @@
     "eslint-plugin-unicorn": "^73.0.0",
     "fumadocs-core": "^16.14.0",
     "globals": "^17.9.0",
+    "knip": "^6.31.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "size-limit": "^11.2.0",
     "tsdown": "^0.22.14",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.66.0",
+    "valibot": "^1.1.0",
     "vitest": "^3.2.4",
     "zod": "^4.4.3"
   },

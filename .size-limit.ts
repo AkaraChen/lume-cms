@@ -1,3 +1,4 @@
+import * as z from 'zod/mini';
 import packageJson from './package.json';
 
 const exportLimits: Partial<Record<string, string>> = {
@@ -6,15 +7,10 @@ const exportLimits: Partial<Record<string, string>> = {
   './schedule': '1 kB',
 };
 
-function hasImport(target: unknown): target is { import: string } {
-  return typeof target === 'object'
-    && target !== null
-    && 'import' in target
-    && typeof target.import === 'string';
-}
+const importTarget = z.object({ import: z.string() });
 
 const exportChecks = Object.entries(packageJson.exports).flatMap(([subpath, target]) => {
-  if (!hasImport(target)) return [];
+  if (!z.safeParse(importTarget, target).success) return [];
   const limit = exportLimits[subpath];
   if (!limit) throw new Error(`Missing size limit for package export ${JSON.stringify(subpath)}`);
 
