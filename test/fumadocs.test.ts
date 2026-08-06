@@ -275,7 +275,7 @@ describe('createFumadocsSource', () => {
 
     const preview = await factory.getPreviewSource({ future: true });
     expect(preview.getPage(['future'])).toBeDefined();
-    expect(previewContexts.at(-1)).toEqual({ draft: false, future: true, expired: false });
+    expect(previewContexts.at(-1)).toEqual({ draft: false, future: true });
     expect(deadlineCalls).toBe(1);
 
     expect((await factory.getSource()).getPage(['future'])).toBeUndefined();
@@ -312,9 +312,15 @@ describe('createFumadocsSource', () => {
       } },
     }, { now: () => new Date(10), plugins: [schedule(), trustedOnly] });
 
-    const preview = await factory.getPreviewSource({ draft: true, future: true, expired: true });
+    const preview = await factory.getPreviewSource({ draft: true, future: true });
     expect(preview.getPage(['hidden'])).toBeUndefined();
     expect(preview.getPage(['visible'])).toBeDefined();
+    const revealed = await factory.getPreviewSource({
+      draft: true,
+      future: true,
+      reveal: ['trusted-only'],
+    });
+    expect(revealed.getPage(['hidden'])).toBeDefined();
   });
 
   it('snapshots compiled entries once while coalescing generation refreshes', async () => {

@@ -274,7 +274,6 @@ function createCollectionSource<
       const revealed = new Set(context.preview?.reveal ?? []);
       if (context.preview?.draft) revealed.add('draft');
       if (context.preview?.future) revealed.add('future');
-      if (context.preview?.expired) revealed.add('expired');
       return entries
         .filter((entry) => entry.hidden().every((reason) => revealed.has(reason)))
         .slice()
@@ -400,7 +399,6 @@ function createCollectionSource<
     const preview = {
       draft: previewOptions.draft === true,
       future: previewOptions.future === true,
-      expired: previewOptions.expired === true,
       ...(previewOptions.reveal && { reveal: previewOptions.reveal }),
     };
     return createLoader(resolveAt({ nowMs: currentTime(), preview }).listed).get();

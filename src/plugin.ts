@@ -24,8 +24,6 @@ export interface CompileCollectionContext extends PluginContext {
 export interface PreviewOptions {
   draft?: boolean;
   future?: boolean;
-  /** Reserved for plugins that implement expiration visibility. */
-  expired?: boolean;
   /** Reveal entries hidden for custom plugin reasons. */
   reveal?: readonly string[];
 }
@@ -33,7 +31,6 @@ export interface PreviewOptions {
 export interface PreviewContext {
   draft: boolean;
   future: boolean;
-  expired: boolean;
   reveal?: readonly string[];
 }
 

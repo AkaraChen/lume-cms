@@ -205,8 +205,8 @@ Plugins run on both sides of the JSON boundary, so each compile collection and r
 ### Per-request preview
 
 Each collection factory also returns `getPreviewSource(options)`. Its sparse options enable
-only the requested visibility dimensions: `draft`, `future`, and the reserved
-`expired` flag. Custom hide reasons can be revealed with `reveal: ['reason']`;
+only the requested built-in visibility dimensions: `draft` and `future`.
+Custom hide reasons can be revealed with `reveal: ['reason']`;
 an entry carrying multiple reasons remains hidden until every reason is revealed.
 Options are normalized before runtime plugins run.
 The built-in `schedule()` plugin relaxes its date check only for
