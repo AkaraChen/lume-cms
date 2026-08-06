@@ -74,8 +74,8 @@ if (runtimeBundle.includes('publishAtMs')) {
 if (!/from ["']zod["']/.test(configBundle)) {
   throw new Error('The config entry must keep Zod external');
 }
-if (/from ["']zod(\/mini)?["']/.test(runtimeBundle)) {
-  throw new Error('The core runtime entry must not import Zod');
+if (!publishedBundles.some((bundle) => /from ["']zod\/mini["']/.test(bundle))) {
+  throw new Error('The published chunks must keep Zod Mini external');
 }
 if (!publishedBundles.some((bundle) => /from ["']c12["']/.test(bundle))) {
   throw new Error('The published CLI chunks must keep c12 external');
