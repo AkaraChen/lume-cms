@@ -1,4 +1,4 @@
-import { getPageImageUrl, getPageMarkdownUrl, getPreviewSource, getSource } from '@/lib/source';
+import { getPageImageUrl, getPageMarkdownUrl, getSource } from '@/lib/source';
 import {
   DocsBody,
   DocsDescription,
@@ -12,16 +12,16 @@ import { getMDXComponents } from '@/components/mdx';
 import type { Metadata } from 'next';
 import { createRelativeLink } from 'fumadocs-ui/mdx';
 import { gitConfig } from '@/lib/shared';
-import { draftMode } from 'next/headers';
 
-export const dynamic = 'force-dynamic';
+export const revalidate = false;
+
+export async function generateStaticParams() {
+  return (await getSource()).generateParams();
+}
 
 export default async function Page(props: PageProps<'/docs/[[...slug]]'>) {
   const params = await props.params;
-  const preview = (await draftMode()).isEnabled;
-  const source = preview
-    ? await getPreviewSource({ draft: true, future: true })
-    : await getSource();
+  const source = await getSource();
   const page = source.getPage(params.slug);
   if (!page) notFound();
 
@@ -53,10 +53,7 @@ export default async function Page(props: PageProps<'/docs/[[...slug]]'>) {
 
 export async function generateMetadata(props: PageProps<'/docs/[[...slug]]'>): Promise<Metadata> {
   const params = await props.params;
-  const preview = (await draftMode()).isEnabled;
-  const source = preview
-    ? await getPreviewSource({ draft: true, future: true })
-    : await getSource();
+  const source = await getSource();
   const page = source.getPage(params.slug);
   if (!page) notFound();
 

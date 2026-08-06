@@ -2,7 +2,7 @@ import { getSource } from '@/lib/source';
 import { DocsLayout } from 'fumadocs-ui/layouts/docs';
 import { baseOptions } from '@/lib/layout.shared';
 
-export const dynamic = 'force-dynamic';
+export const revalidate = false;
 
 export default async function Layout({ children }: LayoutProps<'/docs'>) {
   return (

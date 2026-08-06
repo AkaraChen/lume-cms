@@ -30,9 +30,12 @@ In the project, you can see:
 
 Run `lume-cms build` before Next.js starts to compile Markdown and MDX into `content.generated.json`.
 
-The docs detail route checks Next.js `draftMode()` inside each request and uses
-the isolated `getPreviewSource()` only when draft mode is enabled. Production
-lists, search, RSS, sitemap, OG, and text exports continue to use `getSource()`.
+The docs collection has no time-dependent plugins, so its pages, navigation,
+OG images, and Markdown exports use `generateStaticParams()` and remain static.
+Blog and cross-collection consumers stay request-time dynamic because they
+include the scheduled collection. `getPreviewSource()` is available for a
+separate authenticated preview surface; calling `draftMode()` from the public
+docs page would opt that route back into dynamic rendering.
 
 ## Learn More
 

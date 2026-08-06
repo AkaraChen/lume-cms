@@ -16,7 +16,7 @@ describe('example request-time publishing contract', () => {
     }
   });
 
-  it('gives every getSource route exactly the force-dynamic publishing model', async () => {
+  it('statically generates docs while keeping schedule-dependent consumers dynamic', async () => {
     const files = await fg('examples/app/**/*.{ts,tsx}');
     const routes = await Promise.all(files.map(async (file) => ({
       file,
@@ -25,7 +25,24 @@ describe('example request-time publishing contract', () => {
     const consumers = routes.filter(({ source }) => /get(?:Source|BlogSource|AllSources|AllPages)/.test(source));
 
     expect(consumers.map(({ file }) => file).sort()).toHaveLength(11);
-    for (const { file, source } of consumers) {
+    const docsOnly = consumers.filter(({ file }) => (
+      file === 'examples/app/docs/layout.tsx'
+      || file === 'examples/app/docs/[[...slug]]/page.tsx'
+      || file === 'examples/app/og/docs/[...slug]/route.tsx'
+      || file === 'examples/app/llms.mdx/docs/[[...slug]]/route.ts'
+    ));
+    expect(docsOnly).toHaveLength(4);
+    for (const { file, source } of docsOnly) {
+      expect(source, file).toContain('export const revalidate = false');
+      expect(source, file).not.toContain('force-dynamic');
+    }
+    for (const { file, source } of docsOnly.filter(({ file }) => !file.endsWith('/layout.tsx'))) {
+      expect(source, file).toContain('generateStaticParams');
+    }
+
+    const scheduleDependent = consumers.filter(({ file }) => !docsOnly.some((route) => route.file === file));
+    expect(scheduleDependent).toHaveLength(7);
+    for (const { file, source } of scheduleDependent) {
       expect(source, file).toContain("export const dynamic = 'force-dynamic'");
       expect(source, file).not.toMatch(/force-static|fetchCache|unstable_cache/);
     }
@@ -34,19 +51,20 @@ describe('example request-time publishing contract', () => {
       expect(source, file).not.toMatch(/generateStaticParams|dynamicParams/);
     }
 
-    expect(await readFile('README.md', 'utf8')).not.toMatch(/generateStaticParams|dynamicParams/);
+    const docsPage = docsOnly.find(({ file }) => file === 'examples/app/docs/[[...slug]]/page.tsx')?.source;
+    expect(docsPage).not.toMatch(/draftMode|getPreviewSource/);
+    const readme = await readFile('README.md', 'utf8');
+    expect(readme).toContain("can keep the official starter's `revalidate = false` and `generateStaticParams()` model");
+    expect(readme).toContain('route-segment `revalidate` values must be statically analyzable');
   });
 
-  it('limits preview reads to the draftMode-guarded docs detail request', async () => {
+  it('keeps preview reads out of statically generated public routes', async () => {
     const files = await fg('examples/app/**/*.{ts,tsx}');
     const previewConsumers = (await Promise.all(files.map(async (file) => ({
       file,
       source: await readFile(file, 'utf8'),
     })))).filter(({ source }) => source.includes('getPreviewSource'));
 
-    expect(previewConsumers.map(({ file }) => file)).toEqual(['examples/app/docs/[[...slug]]/page.tsx']);
-    expect(previewConsumers[0]?.source).toContain("import { draftMode } from 'next/headers'");
-    expect(previewConsumers[0]?.source).toMatch(/\(await draftMode\(\)\)\.isEnabled/);
-    expect(previewConsumers[0]?.source).toMatch(/preview\s*\? await getPreviewSource/);
+    expect(previewConsumers).toEqual([]);
   });
 });
