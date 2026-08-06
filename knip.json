@@ -1,12 +1,10 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
+  "ignoreWorkspaces": ["examples"],
   "workspaces": {
     ".": {
       "entry": ["scripts/verify-package-types.ts", "test/**/*.test.ts", "test/server-only.ts"],
       "project": ["src/**/*.ts", "test/**/*.ts", "scripts/**/*.{ts,mjs}", "bin/**/*.mjs"]
-    },
-    "examples": {
-      "entry": ["lume.config.ts", "i18n/**/*.ts"]
     }
   }
 }

@@ -11,12 +11,10 @@ interface PageFrontmatter extends Record<string, unknown> {
   tags?: string[];
 }
 
-const { sources, getAllSources, getAllPages } = createFumadocsSources(
+export const { sources, getAllSources, getAllPages } = createFumadocsSources(
   content as CompiledContent<PageFrontmatter>,
   config,
 );
-
-export { getAllPages, getAllSources };
 
 export const { getPreviewSource, getSource } = sources.docs;
 export const { getSource: getBlogSource } = sources.blog;
