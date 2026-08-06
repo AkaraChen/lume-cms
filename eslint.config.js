@@ -6,11 +6,6 @@ import unicorn from "eslint-plugin-unicorn";
 import globals from "globals";
 import tseslint from "typescript-eslint";
 
-/** import-x has no official `all` preset; enable every rule as error. */
-const importXAllRules = Object.fromEntries(
-  Object.keys(importX.rules).map((name) => [`import-x/${name}`, "error"]),
-);
-
 export default defineConfig(
   globalIgnores([
     "dist/**",
@@ -24,27 +19,8 @@ export default defineConfig(
   tseslint.configs.all,
   unicorn.configs.all,
   n.configs["flat/all"],
-  {
-    plugins: {
-      "import-x": importX,
-    },
-    settings: {
-      ...importX.flatConfigs.typescript.settings,
-    },
-    rules: {
-      ...importXAllRules,
-      // TypeScript-aware override from import-x's typescript preset.
-      ...importX.flatConfigs.typescript.rules,
-      // ESLint 10 removed FileEnumerator; keep rule intent, silence no-op warning.
-      "import-x/no-unused-modules": [
-        "error",
-        {
-          unusedExports: true,
-          suppressMissingFileEnumeratorAPIWarning: true,
-        },
-      ],
-    },
-  },
+  importX.flatConfigs.recommended,
+  importX.flatConfigs.typescript,
   {
     languageOptions: {
       globals: {
