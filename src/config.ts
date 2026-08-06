@@ -45,7 +45,7 @@ export type ContentSchema = StandardSchemaV1<unknown, Record<string, unknown>>;
 
 /** The exact Fumadocs baseline, exported so Zod users can extend it directly. */
 export const officialPageSchema = fumadocsPageSchema;
-export const officialMetaSchema = fumadocsMetaSchema;
+const officialMetaSchema = fumadocsMetaSchema;
 export const defaultPageSchema = officialPageSchema.extend({
   /** lume-cms public page-data extension, used by search integrations. */
   tags: z.array(z.string()).optional(),

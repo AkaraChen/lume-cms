@@ -2,7 +2,7 @@ import type { StructuredData } from 'fumadocs-core/mdx-plugins';
 import type { MetaData } from 'fumadocs-core/source';
 import type { CompiledI18nConfig } from './i18n.js';
 
-export interface TocItem {
+interface TocItem {
   title: string;
   url: string;
   depth: number;

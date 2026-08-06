@@ -27,6 +27,7 @@
   },
   "scripts": {
     "build": "tsdown",
+    "knip": "knip",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
@@ -53,6 +54,7 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "fumadocs-core": "^16.14.0",
+    "knip": "^6.31.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "size-limit": "^11.2.0",

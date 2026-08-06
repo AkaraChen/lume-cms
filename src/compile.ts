@@ -235,7 +235,7 @@ export function serializeCompiledContent(content: CompiledContent): string {
   return `${JSON.stringify(stableValue(content, 'artifact'), null, 2)}\n`;
 }
 
-export class CompileDiagnosticsError extends Error {
+class CompileDiagnosticsError extends Error {
   constructor(public readonly diagnostics: CompileDiagnostic[]) {
     super(`Content reference validation failed with ${diagnostics.length} diagnostic${diagnostics.length === 1 ? '' : 's'}`);
     this.name = 'CompileDiagnosticsError';
