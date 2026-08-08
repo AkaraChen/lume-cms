@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { parseCliArgs } from './cli-args.js';
+import { parseCliArgs as parseCliArguments } from './cli-args.js';
 import type { CompileDiagnostic } from './types.js';
 
 function reportDiagnostics(diagnostics: CompileDiagnostic[]) {
@@ -12,11 +12,11 @@ function reportDiagnostics(diagnostics: CompileDiagnostic[]) {
 function reportError(error: unknown) {
   const diagnostics = (error as { diagnostics?: unknown } | null)?.diagnostics;
   if (Array.isArray(diagnostics)) reportDiagnostics(diagnostics as CompileDiagnostic[]);
-  console.error(error instanceof Error ? error.message : error);
+  console.error(Error.isError(error) ? error.message : error);
 }
 
 async function main() {
-  const { watch, strict } = parseCliArgs(process.argv.slice(2));
+  const { watch, strict } = parseCliArguments(process.argv.slice(2));
   if (watch) {
     const { watchContent } = await import('./watch.js');
     const watcher = await watchContent({

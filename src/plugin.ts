@@ -46,15 +46,15 @@ export interface ResolvedEntry<Data extends Record<string, unknown> = Record<str
   /** Immutable compiled input. Runtime state belongs on this generation-scoped wrapper. */
   readonly compiled: Readonly<CompiledEntry<Data>>;
   /** Hide this entry from the shared list boundary for the given reason. */
-  hide(reason: string): void;
+  hide: (reason: string) => void;
   /** All visibility reasons currently attached to this entry. */
-  hidden(): readonly string[];
+  hidden: () => readonly string[];
   /** Set plugin-private generation state; this never changes visibility. */
-  set(key: string, value: unknown): void;
+  set: (key: string, value: unknown) => void;
   /** Read plugin-private generation state. */
-  get<Value = unknown>(key: string): Value | undefined;
+  get: <Value = unknown>(key: string) => Value | undefined;
   /** Merge fields into the final Fumadocs page data. */
-  patchData(patch: Record<string, unknown>): void;
+  patchData: (patch: Record<string, unknown>) => void;
 }
 
 export type Middleware<Arguments extends unknown[], Result> = (
@@ -62,9 +62,9 @@ export type Middleware<Arguments extends unknown[], Result> = (
 ) => Result;
 
 /**
- * Compose middleware outside-in around a core operation. A middleware may
- * short-circuit, but calling `next()` more than once is always an error.
- */
+Compose middleware outside-in around a core operation. A middleware may
+short-circuit, but calling `next()` more than once is always an error.
+*/
 export function composeOnion<Arguments extends unknown[], Result>(
   middleware: readonly Middleware<Arguments, Result>[],
   core: (...arguments_: Arguments) => Result,
@@ -72,10 +72,10 @@ export function composeOnion<Arguments extends unknown[], Result>(
   return (...arguments_) => {
     const dispatch = (index: number): Result => {
       if (index === middleware.length) return core(...arguments_);
-      let called = false;
-      return middleware[index]!(...arguments_, () => {
-        if (called) throw new TypeError('lume-cms plugin middleware called next() more than once');
-        called = true;
+      let isCalled = false;
+      return middleware[index](...arguments_, () => {
+        if (isCalled) throw new TypeError('lume-cms plugin middleware called next() more than once');
+        isCalled = true;
         return dispatch(index + 1);
       });
     };
@@ -85,19 +85,19 @@ export function composeOnion<Arguments extends unknown[], Result>(
 
 export interface RuntimeHooks {
   /** Mark or decorate one generation-scoped entry. */
-  resolve?(entry: ResolvedEntry, context: RuntimeContext, next: Next<void>): void;
+  resolve?: (entry: ResolvedEntry, context: RuntimeContext, next: Next<void>) => void;
   /** Filter or reorder the shared entry list. */
-  list?(
+  list?: (
     entries: readonly ResolvedEntry[],
     context: RuntimeContext,
     next: Next<ResolvedEntry[]>,
-  ): ResolvedEntry[];
+  ) => ResolvedEntry[];
   /** Return the first instant after `nowMs` at which this generation is stale. */
-  deadline?(
+  deadline?: (
     entries: readonly ResolvedEntry[],
     context: RuntimeContext,
     next: Next<number>,
-  ): number;
+  ) => number;
   /** Requires `deadline` so request-time visibility cannot become permanently stale. */
   timeDependent?: boolean;
 }
@@ -105,9 +105,9 @@ export interface RuntimeHooks {
 export interface TimeGateOptions {
   reason: string;
   /** Transition instant for an entry, or null when the gate does not apply. */
-  at(entry: ResolvedEntry): number | null;
+  at: (entry: ResolvedEntry) => number | null;
   /** Skip cache invalidation for entries that cannot become publicly visible. */
-  invalidate?(entry: ResolvedEntry): boolean;
+  invalidate?: (entry: ResolvedEntry) => boolean;
   /** Hide at and after the transition instead of before it. */
   after?: boolean;
 }
@@ -121,13 +121,11 @@ export function defineTimeGate(options: TimeGateOptions): RuntimeHooks {
       const at = options.at(entry);
       if (at !== null && (options.after ? nowMs >= at : nowMs < at)) entry.hide(options.reason);
     },
-    deadline(entries, { nowMs }, next) {
-      return entries
+    deadline: (entries, { nowMs }, next) => entries
         .filter((entry) => options.invalidate?.(entry) !== false)
         .map(options.at)
         .filter((at): at is number => at !== null && at > nowMs)
-        .reduce((earliest, at) => Math.min(earliest, at), next());
-    },
+        .reduce((earliest, at) => Math.min(earliest, at), next()),
   };
 }
 
@@ -149,9 +147,9 @@ export interface LumeBuildPlugin<Frontmatter extends object = object, Data exten
   build?: {
     /** Stable options/version key for invalidating incremental compilation. */
     cacheKey?: string;
-    setup?(context: BuildPluginContext, next: Next<Promise<void>>): void | Promise<void>;
-    entry?(context: BuildEntryContext): unknown | Promise<unknown>;
-    collection?(context: BuildCollectionContext, next: Next<Promise<void>>): void | Promise<void>;
+    setup?: (context: BuildPluginContext, next: Next<Promise<void>>) => void | Promise<void>;
+    entry?: (context: BuildEntryContext) => unknown | Promise<unknown>;
+    collection?: (context: BuildCollectionContext, next: Next<Promise<void>>) => void | Promise<void>;
   };
 }
 

@@ -47,7 +47,9 @@ const externalProtocol = /^[a-z][a-z\d+.-]*:/i;
 
 function walk(node: AstNode, visit: (node: AstNode) => void) {
   visit(node);
-  for (const child of node.children ?? []) walk(child, visit);
+  if ((node.children) != null) {
+  	for (const child of node.children) walk(child, visit);
+  }
 }
 
 function location(node: AstNode): Pick<ExtractedReference, 'line' | 'column'> | undefined {
@@ -85,7 +87,7 @@ export function createReferenceCollector(output: ReferenceCollector) {
             });
           }
         } else if (node.type === 'mdxJsxFlowElement' || node.type === 'mdxJsxTextElement') {
-          const attributeName = node.name === 'img' ? 'src' : node.name === 'a' ? 'href' : undefined;
+          const attributeName = node.name === 'img' ? 'src' : (node.name === 'a' ? 'href' : undefined);
           const attribute = attributeName
             ? node.attributes?.find((item) => item.type === 'mdxJsxAttribute' && item.name === attributeName)
             : undefined;
@@ -115,15 +117,13 @@ function splitTarget(target: string): { pathname: string; hash?: string } | unde
   const queryAt = trimmed.indexOf('?');
   const pathEnd = [hashAt, queryAt].filter((index) => index >= 0).reduce((a, b) => Math.min(a, b), trimmed.length);
   const rawPath = trimmed.slice(0, pathEnd);
-  const rawHash = hashAt >= 0 ? trimmed.slice(hashAt + 1, queryAt > hashAt ? queryAt : undefined) : undefined;
+  const rawHash = hashAt === -1 ? undefined : trimmed.slice(hashAt + 1, queryAt > hashAt ? queryAt : undefined);
   try {
     return {
       pathname: rawPath.startsWith('file:') ? rawPath : decodeURI(rawPath),
       hash: rawHash ? decodeURIComponent(rawHash) : undefined,
     };
-  } catch {
-    return;
-  }
+  } catch {}
 }
 
 function normalizedVirtualPath(value: string): string {
@@ -154,12 +154,10 @@ function resourcePath(cwd: string, sourcePath: string, pathname: string): string
   try {
     return pathname.startsWith('file:')
       ? fileURLToPath(pathname)
-      : pathname.startsWith('/')
+      : (pathname.startsWith('/')
         ? path.resolve(cwd, 'public', pathname.slice(1))
-        : path.resolve(cwd, path.dirname(sourcePath), pathname);
-  } catch {
-    return;
-  }
+        : path.resolve(cwd, path.dirname(sourcePath), pathname));
+  } catch {}
 }
 
 function absoluteTarget(
@@ -177,7 +175,7 @@ function absoluteTarget(
     .sort((a, b) => b.root.length - a.root.length)
     .map(({ locale, root }) => ({
       locale,
-      slug: normalized === root ? '' : root === '/' ? normalized.slice(1) : normalized.slice(root.length + 1),
+      slug: normalized === root ? '' : (root === '/' ? normalized.slice(1) : normalized.slice(root.length + 1)),
     }))[0];
 }
 
@@ -296,10 +294,7 @@ export async function validateReferences(
           }
         };
         const page = pages.find((candidate) => {
-          const anchors = new Set([
-            ...candidate!.entry.body.toc.map((item) => normalizeAnchor(item.url.replace(/^#/, ''))),
-            ...candidate!.anchors,
-          ]);
+          const anchors = new Set(Iterator.concat(candidate!.entry.body.toc.map((item) => normalizeAnchor(item.url.replace(/^#/, ''))), candidate!.anchors));
           return !anchors.has(normalizeAnchor(hash));
         });
         if (page) {

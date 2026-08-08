@@ -113,13 +113,16 @@ const stringifyProcessedMarkdown = defaultStringifier({
       case 'mdxjsEsm':
       case 'mdxFlowExpression':
       case 'mdxTextExpression':
-      case 'html':
+      case 'html': {
         return false;
+      }
       case 'mdxJsxFlowElement':
-      case 'mdxJsxTextElement':
+      case 'mdxJsxTextElement': {
         return 'children-only';
-      default:
+      }
+      default: {
         return true;
+      }
     }
   },
   stringify(node) {
@@ -133,15 +136,15 @@ const stringifyProcessedMarkdown = defaultStringifier({
         : []));
     const label = literals.title ?? literals.label;
     if (!label) return;
-    const escapedLabel = label.replace(/([\\`*_[\]<>])/g, '\\$1');
+    const escapedLabel = label.replaceAll(/([\\`*_[\]<>])/g, String.raw`\$1`);
     return literals.href
-      ? `[${escapedLabel}](${literals.href.replace(/[\s()<>]/g, (character) => encodeURIComponent(character))})`
+      ? `[${escapedLabel}](${literals.href.replaceAll(/[\s()<>]/g, (character) => encodeURIComponent(character))})`
       : escapedLabel;
   },
 });
 
 type MarkdownTree = Parameters<typeof stringifyProcessedMarkdown>[0];
-type MarkdownProcessor = { data(key: string): unknown };
+interface MarkdownProcessor { data: (key: string) => unknown }
 
 /** Pure-Markdown degradation: drop code/expressions and unwrap JSX while preserving portable text. */
 function remarkProcessedMarkdown(this: MarkdownProcessor) {
@@ -165,9 +168,9 @@ async function compileBody(source: string): Promise<CompiledBody & {
     remarkImageOptions: { useImport: false },
     remarkPlugins: [createReferenceCollector(collected), remarkProcessedMarkdown],
   }));
-  const structuredData = file.data.structuredData;
+  const {structuredData} = file.data;
   if (!structuredData) throw new Error('Fumadocs mdxPreset did not produce structured data');
-  const processedMarkdown = file.data.processedMarkdown;
+  const {processedMarkdown} = file.data;
   if (typeof processedMarkdown !== 'string') throw new Error('Fumadocs mdxPreset did not produce processed Markdown');
   return {
     markdown: source,
@@ -187,29 +190,29 @@ function stableValue(
   mode: StableValueMode,
   seen = new Map<object, number>(),
 ): unknown {
-  const fingerprint = mode === 'fingerprint';
-  if (fingerprint && typeof value === 'function') {
+  const isFingerprint = mode === 'fingerprint';
+  if (isFingerprint && typeof value === 'function') {
     return { $function: Function.prototype.toString.call(value) };
   }
-  if (fingerprint && typeof value === 'bigint') return { $bigint: value.toString() };
-  if (fingerprint && typeof value === 'symbol') return { $symbol: String(value) };
+  if (isFingerprint && typeof value === 'bigint') return { $bigint: value.toString() };
+  if (isFingerprint && typeof value === 'symbol') return { $symbol: String(value) };
   if (!value || typeof value !== 'object') return value;
 
-  if (fingerprint) {
+  if (isFingerprint) {
     const existing = seen.get(value);
     if (existing !== undefined) return { $ref: existing };
     seen.set(value, seen.size);
   }
-  if (fingerprint && value instanceof Date) return { $date: value.toISOString() };
-  if (fingerprint && value instanceof RegExp) return { $regexp: value.toString() };
-  if (fingerprint && value instanceof Map) {
+  if (isFingerprint && value instanceof Date) return { $date: value.toISOString() };
+  if (isFingerprint && value instanceof RegExp) return { $regexp: value.toString() };
+  if (isFingerprint && value instanceof Map) {
     return {
-      $map: [...value.entries()]
+      $map: [...value]
         .map(([key, item]) => [stableValue(key, mode, seen), stableValue(item, mode, seen)])
         .sort(([a], [b]) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
     };
   }
-  if (fingerprint && value instanceof Set) {
+  if (isFingerprint && value instanceof Set) {
     return {
       $set: [...value]
         .map((item) => stableValue(item, mode, seen))
@@ -286,7 +289,7 @@ export interface ResolvedCollection {
 export function resolveCollections(cwd: string, config: LumeConfig): ResolvedCollection[] {
   const configured = normalizedCollections(config);
   return Object.keys(configured).sort().map((name) => {
-    const definition = configured[name]!;
+    const definition = configured[name];
     const plugins = (definition.plugins ?? []).filter(isBuildPlugin);
     assertPluginIds(plugins);
     return {
@@ -357,11 +360,11 @@ async function parseMeta(
   try {
     value = JSON.parse(raw);
   } catch (error) {
-    const detail = error instanceof Error ? `: ${error.message}` : '';
+    const detail = Error.isError(error) ? `: ${error.message}` : '';
     throw new Error(`${sourcePath}: invalid meta.json${detail}`);
   }
   // The meta schema owns shape validation, including rejecting non-objects.
-  return await validate(schema, value, sourcePath, 'meta.json') as CompiledMeta['data'];
+  return validate(schema, value, sourcePath, 'meta.json');
 }
 
 /** Reserved fields lume-cms owns; they never reach the user's page-data schema. */
@@ -410,10 +413,10 @@ async function compileEntry(
   const { draft: _draft, slug: _slug, ...publicFrontmatter } = parsed.data as Record<string, unknown>;
   const data = { ...await validate(schema, publicFrontmatter, sourcePath, 'frontmatter') };
   assertNoPrivatePageData(data, sourcePath);
-  const slug = privateData.slug !== undefined
-    ? privateData.slug.split('/').filter(Boolean)
-    : getSlugs(localizedPath.path);
-  const ext: Record<string, unknown> = {};
+  const slug = privateData.slug === undefined
+    ? getSlugs(localizedPath.path)
+    : privateData.slug.split('/').filter(Boolean);
+  const extension: Record<string, unknown> = {};
   for (const plugin of plugins) {
     let pluginFrontmatter: Record<string, unknown> = {};
     if (plugin.frontmatter) {
@@ -426,7 +429,7 @@ async function compileEntry(
       for (const key of Object.keys(pluginFrontmatter)) delete data[key];
     }
     if (plugin.build?.entry) {
-      ext[plugin.id] = await plugin.build.entry({
+      extension[plugin.id] = await plugin.build.entry({
         sourcePath,
         contentPath,
         slug,
@@ -443,7 +446,7 @@ async function compileEntry(
       path: contentPath,
       draft: privateData.draft,
       data,
-      ext,
+      ext: extension,
       body,
     },
     references,
@@ -461,7 +464,7 @@ export async function compileContent(options: CompileOptions = {}): Promise<Comp
     'lume-cms-compile-cache-v3',
     JSON.stringify(stableValue(normalizedCollections(config), 'fingerprint')),
   );
-  const cache = options.cache;
+  const {cache} = options;
   cache?.prepare(fingerprint);
   const pluginContext = { cwd, config };
   const entryPaths = new Set<string>();

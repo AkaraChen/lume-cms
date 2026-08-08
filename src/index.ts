@@ -48,7 +48,7 @@ type LumePageData<Data extends Record<string, unknown> = Record<string, unknown>
 
 type LumeLoaderStorage<Data extends Record<string, unknown>> = ContentStorage<
   ContentStoragePageFile<undefined, LumePageData<Data>>,
-  ContentStorageMetaFile<undefined, MetaData>
+  ContentStorageMetaFile<undefined>
 >;
 
 type LumeLoaderOptions<Data extends Record<string, unknown>> = LoaderOptions<
@@ -77,13 +77,13 @@ type LumeLoaderOutput<
   ? I18n extends I18nConfig
     ? LoaderOutput<{
       page: Page<undefined, LumePageData<InferCollectionData<Collection> & InferPluginData<Plugins>>>;
-      meta: Meta<undefined, MetaData>;
+      meta: Meta<undefined>;
       i18n: I18n;
       source: undefined;
     }>
     : LoaderOutput<{
       page: Page<undefined, LumePageData<InferCollectionData<Collection> & InferPluginData<Plugins>>>;
-      meta: Meta<undefined, MetaData>;
+      meta: Meta<undefined>;
       i18n: undefined;
       source: undefined;
     }>
@@ -94,8 +94,8 @@ export interface FumadocsCollectionFactory<
   Plugins extends readonly AnyLumePlugin[] = [],
   RuntimeI18n extends I18nConfig | undefined = undefined,
 > {
-  getSource(): Promise<LumeLoaderOutput<Collection, Plugins, RuntimeI18n>>;
-  getPreviewSource(options?: PreviewOptions): Promise<LumeLoaderOutput<Collection, Plugins, RuntimeI18n>>;
+  getSource: () => Promise<LumeLoaderOutput<Collection, Plugins, RuntimeI18n>>;
+  getPreviewSource: (options?: PreviewOptions) => Promise<LumeLoaderOutput<Collection, Plugins, RuntimeI18n>>;
 }
 
 type InferSingleCollection<Content extends CompiledContent> =
@@ -149,11 +149,11 @@ function resolvedEntry(compiled: CompiledEntry, body: BodyComponent): ResolvedSt
 
 function bodyComponent(body: CompiledBody): BodyComponent {
   let evaluated: Promise<BodyComponent> | undefined;
-  return async function CompiledBodyContent(props) {
+  return async function CompiledBodyContent(properties) {
     evaluated ??= run(body.code, { ...runtime, baseUrl: import.meta.url }).then(
       (module) => module.default as BodyComponent,
     );
-    return createElement(await evaluated, props);
+    return createElement(await evaluated, properties);
   };
 }
 
@@ -202,7 +202,7 @@ function createCollectionSource<
   const hooks = runtimePlugins.map((plugin) => plugin.runtime);
   for (const [index, hook] of hooks.entries()) {
     if (hook.timeDependent && !hook.deadline) {
-      throw new TypeError(`Time-dependent lume-cms plugin ${JSON.stringify(runtimePlugins[index]!.id)} must provide a deadline hook`);
+      throw new TypeError(`Time-dependent lume-cms plugin ${JSON.stringify(runtimePlugins[index].id)} must provide a deadline hook`);
     }
   }
   if (options.pageTree && 'url' in options.pageTree) {
@@ -223,10 +223,10 @@ function createCollectionSource<
     ? (file) => options.slugs?.(file) ?? compiledSlugs.get(file.path)
     : undefined;
 
-  type SourceConfig = {
+  interface SourceConfig {
     pageData: LumePageData<Data & InferPluginData<Plugins>>;
     metaData: MetaData;
-  };
+  }
 
   const resolve = composeOnion(
     hooks.flatMap((hook) => hook.resolve ? [hook.resolve] : []),
@@ -237,12 +237,11 @@ function createCollectionSource<
   const list = composeOnion(
     hooks.flatMap((hook) => hook.list ? [hook.list] : []),
     (entries: readonly ResolvedEntry[], context: RuntimeContext) => {
-      const revealed = new Set(context.preview?.reveal ?? []);
+      const revealed = new Set(context.preview?.reveal);
       if (context.preview?.draft) revealed.add('draft');
       if (context.preview?.future) revealed.add('future');
       return entries
         .filter((entry) => entry.hidden().every((reason) => revealed.has(reason)))
-        .slice()
         .sort((a, b) => (
           (a.compiled.locale ?? '').localeCompare(b.compiled.locale ?? '')
           || a.compiled.slug.join('/').localeCompare(b.compiled.slug.join('/'))
@@ -287,7 +286,7 @@ function createCollectionSource<
           return {
             type: 'page' as const,
             path: compiledEntry.path,
-            ...(loaderSlugs ? {} : { slugs: compiledEntry.slug }),
+            ...(!loaderSlugs && { slugs: compiledEntry.slug }),
             data,
           };
         }),
@@ -323,7 +322,7 @@ function createCollectionSource<
     value: ReturnType<Loader['get']>;
   }
   // A loader is immutable after creation. Retaining interval generations keeps
-  // overlapping request-scoped clocks isolated even when they arrive out of order.
+  // Overlapping request-scoped clocks isolated even when they arrive out of order.
   const maxCachedGenerations = 32;
   const generations: Generation[] = [];
   let accessCounter = 0;
@@ -340,7 +339,7 @@ function createCollectionSource<
     };
   }
 
-  function getSource() {
+  async function getSource() {
     const at = currentTime();
     let generation = generations
       .filter((candidate) => candidate.from <= at && at < candidate.until)
@@ -348,20 +347,20 @@ function createCollectionSource<
         (best, candidate) => !best || candidate.from > best.from ? candidate : best,
         undefined,
       );
-    if (!generation) {
+    if (generation) {
+      generation.lastUsed = ++accessCounter;
+    } else {
       generation = createGeneration(at);
       generations.push(generation);
       if (generations.length > maxCachedGenerations) {
         const oldest = generations.reduce((a, b) => a.lastUsed < b.lastUsed ? a : b);
         generations.splice(generations.indexOf(oldest), 1);
       }
-    } else {
-      generation.lastUsed = ++accessCounter;
     }
     return generation.value;
   }
 
-  function getPreviewSource(previewOptions: PreviewOptions = {}) {
+  async function getPreviewSource(previewOptions: PreviewOptions = {}) {
     const preview = {
       draft: previewOptions.draft === true,
       future: previewOptions.future === true,
@@ -394,7 +393,7 @@ export function createFumadocsSources<
 
   const baseUrls = new Map<string, string>();
   for (const name of runtimeNames) {
-    const compiledBaseUrl = content.collections[name]!.baseUrl;
+    const compiledBaseUrl = content.collections[name].baseUrl;
     const baseUrl = normalizeBaseUrl(compiledBaseUrl);
     const existing = baseUrls.get(baseUrl);
     if (existing) throw new TypeError(`Collections ${JSON.stringify(existing)} and ${JSON.stringify(name)} use the same baseUrl ${JSON.stringify(baseUrl)}`);
@@ -403,7 +402,7 @@ export function createFumadocsSources<
 
   const sources = Object.fromEntries(runtimeNames.map((name) => [
     name,
-    createCollectionSource(name, content.collections[name]!, collectionRecord[name]!, Date.now),
+    createCollectionSource(name, content.collections[name], collectionRecord[name], Date.now),
   ])) as unknown as {
     [Name in keyof ConfigCollections<Config>]: FumadocsCollectionFactory<
       CompiledCollection<Data>,
@@ -414,7 +413,7 @@ export function createFumadocsSources<
 
   async function getAllSources() {
     const sourceRecord = sources as Record<string, FumadocsCollectionFactory<CompiledCollection, readonly AnyLumePlugin[]>>;
-    const pairs = await Promise.all(runtimeNames.map(async (name) => [name, await sourceRecord[name]!.getSource()] as const));
+    const pairs = await Promise.all(runtimeNames.map(async (name) => [name, await sourceRecord[name].getSource()] as const));
     return Object.fromEntries(pairs) as {
       [Name in keyof ConfigCollections<Config>]: Awaited<ReturnType<(typeof sources)[Name]['getSource']>>;
     };
@@ -456,12 +455,12 @@ export function createFumadocsSource(
   if (names.length !== 1) {
     throw new TypeError(`createFumadocsSource() requires exactly one compiled collection; found ${names.length}. Use createFumadocsSources().`);
   }
-  const name = names[0]!;
-  const compiled = content.collections[name]!;
+  const name = names[0];
+  const compiled = content.collections[name];
   const collections = config.collections ?? { [name]: {} };
   const configuredNames = Object.keys(collections);
   if (configuredNames.length !== 1 || !collections[name]) {
     throw new TypeError(`createFumadocsSource() config must define exactly the compiled collection ${JSON.stringify(name)}`);
   }
-  return createCollectionSource(name, compiled, collections[name]!, Date.now);
+  return createCollectionSource(name, compiled, collections[name], Date.now);
 }

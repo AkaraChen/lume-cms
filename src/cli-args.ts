@@ -9,7 +9,7 @@ export interface CliOptions {
 }
 
 export function parseCliArgs(argv: string[]): CliOptions {
-  // help:false keeps this pure (no process.exit on --help).
+  // Help:false keeps this pure (no process.exit on --help).
   const parsed = cli(
     {
       name: 'lume-cms',
@@ -32,13 +32,13 @@ export function parseCliArgs(argv: string[]): CliOptions {
 
   const { command } = parsed._;
   const endOfFlags = parsed._['--'];
-  const invalid =
+  const isInvalid =
     Object.keys(parsed.unknownFlags).length > 0
     || (command !== undefined && command !== 'build')
     || parsed._.length > 1
     || endOfFlags.length > 0;
 
-  if (invalid) {
+  if (isInvalid) {
     throw new Error(CLI_USAGE);
   }
 

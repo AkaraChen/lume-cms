@@ -47,14 +47,14 @@ export type ContentSchema = StandardSchemaV1<unknown, Record<string, unknown>>;
 export const officialPageSchema = fumadocsPageSchema;
 const officialMetaSchema = fumadocsMetaSchema;
 export const defaultPageSchema = officialPageSchema.extend({
-  /** lume-cms public page-data extension, used by search integrations. */
+  /** Lume-cms public page-data extension, used by search integrations. */
   tags: z.array(z.string()).optional(),
 });
 export const defaultMetaSchema = officialMetaSchema;
 
 type CollectionStorage<Plugins extends readonly AnyLumePlugin[]> = ContentStorage<
   ContentStoragePageFile<undefined, PageData & InferPluginData<Plugins>>,
-  ContentStorageMetaFile<undefined, MetaData>
+  ContentStorageMetaFile<undefined>
 >;
 
 type CollectionLoaderOptions<Plugins extends readonly AnyLumePlugin[]> = LoaderOptions<
