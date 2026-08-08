@@ -35,6 +35,36 @@ export default defineConfig(
     },
     rules: {
       "one-var": "off",
+
+      // Style-only noise from `*.configs.all` — do not fight formatter/idiom.
+      curly: "off",
+      "func-style": "off",
+      "sort-imports": "off",
+      "sort-keys": "off",
+      "unicorn/consistent-arrow-return-style": "off",
+      "unicorn/single-line-block-comment-style": "off",
+
+      // Too noisy on real object/array parameter types.
+      "@typescript-eslint/prefer-readonly-parameter-types": "off",
+
+      // CLI entry (`src/cli.ts`) needs a shebang; bin wrapper owns execution.
+      "n/hashbang": "off",
+      "n/shebang": "off",
+
+      // Case-by-case: keep unicorn/name-replacements; drop the rest (KIT-649).
+      "id-length": "off",
+      "no-continue": "off",
+      "no-ternary": "off",
+      "no-undefined": "off",
+      "no-void": "off",
+      "unicorn/no-null": "off",
+    },
+  },
+  // CLI is the stdout/stderr surface; keep no-console elsewhere.
+  {
+    files: ["src/cli.ts"],
+    rules: {
+      "no-console": "off",
     },
   },
 );
