@@ -146,7 +146,7 @@ describe('plugin runtime', () => {
     expect(original.data.title).toBe('Original');
   });
 
-  it('rejects incomplete time-dependent and invalid list middleware', () => {
+  it('rejects incomplete time-dependent and invalid list middleware', async () => {
     const entry = {
       slug: ['page'], path: 'page.md', draft: false, data: { title: 'Page' }, ext: {}, body,
     };
@@ -163,7 +163,7 @@ describe('plugin runtime', () => {
       },
     });
     const source = createFumadocsSource(content(['invalid'], [entry]), { collections: { default: { plugins: [invalid] } } });
-    expect(() => source.getSource()).toThrow(/must return an entry array/);
+    await expect(source.getSource()).rejects.toThrow(/must return an entry array/);
   });
 
   it('rejects duplicate ids', () => {

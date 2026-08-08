@@ -47,7 +47,7 @@ export function parseI18nPath(filePath: string, i18n?: CompiledI18nConfig) {
     const base = segments.pop();
     const parts = base?.split('.') ?? [];
     if (parts.length >= 3) {
-      const locale = parts.at(-2)!;
+      const locale = parts.at(-2) ?? '';
       if (i18n.languages.includes(locale) || locale === '$') {
         parts.splice(-2, 1);
         segments.push(parts.join('.'));

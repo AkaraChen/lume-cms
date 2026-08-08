@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { CLI_USAGE, parseCliArgs } from '../src/cli-args.js';
+import { CLI_USAGE, parseCliArguments } from '../src/cli-arguments.js';
 
-describe('parseCliArgs', () => {
+describe('parseCliArguments', () => {
   it.each([
     { argv: [], expected: { command: 'build', watch: false, strict: false } },
     { argv: ['build'], expected: { command: 'build', watch: false, strict: false } },
@@ -16,7 +16,7 @@ describe('parseCliArgs', () => {
     { argv: ['build', '--watch', '--watch'], expected: { command: 'build', watch: true, strict: false } },
     { argv: ['build', '--strict', '--strict'], expected: { command: 'build', watch: false, strict: true } },
   ])('parses $argv', ({ argv, expected }) => {
-    expect(parseCliArgs(argv)).toEqual(expected);
+    expect(parseCliArguments(argv)).toEqual(expected);
   });
 
   it.each([
@@ -26,12 +26,12 @@ describe('parseCliArgs', () => {
     ['build', '-w'],
     ['build', '--', 'x'],
   ])('rejects invalid arguments: %j', (...argv) => {
-    expect(() => parseCliArgs(argv)).toThrowError(new Error(CLI_USAGE));
+    expect(() => parseCliArguments(argv)).toThrowError(new Error(CLI_USAGE));
   });
 
   it('does not expose parser error details', () => {
     try {
-      parseCliArgs(['build', '--nope']);
+      parseCliArguments(['build', '--nope']);
       expect.unreachable('expected parsing to fail');
     } catch (error) {
       expect(error).toBeInstanceOf(Error);

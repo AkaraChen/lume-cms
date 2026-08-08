@@ -20,7 +20,6 @@ import type { CollectionConfig, LumeConfig } from './config.js';
 import type { CompiledBody, CompiledCollection, CompiledContent, CompiledEntry } from './types.js';
 import {
   assertPluginIds,
-  collection,
   composeOnion,
   isBuildPlugin,
   isRuntimePlugin,
@@ -123,7 +122,7 @@ type ResolvedState = ResolvedEntry & {
 function freezeCompiled(entry: CompiledEntry): Readonly<CompiledEntry> {
   const clone = structuredClone(entry);
   const freeze = (value: unknown): void => {
-    if (!value || typeof value !== 'object' || Object.isFrozen(value)) return;
+    if (value === null || typeof value !== 'object' || Object.isFrozen(value)) return;
     for (const child of Object.values(value)) freeze(child);
     Object.freeze(value);
   };
@@ -138,11 +137,12 @@ function resolvedEntry(compiled: CompiledEntry, body: BodyComponent): ResolvedSt
   return {
     compiled,
     body,
-    hide: (reason) => hidden.add(reason),
+    hide: (reason) => { hidden.add(reason); },
     hidden: () => [...hidden],
-    set: (key, value) => state.set(key, value),
+    set: (key, value) => { state.set(key, value); },
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- implements ResolvedEntry.get's caller-side inference contract
     get: <Value = unknown>(key: string) => state.get(key) as Value | undefined,
-    patchData: (patch) => Object.assign(dataPatch, patch),
+    patchData: (patch) => { Object.assign(dataPatch, patch); },
     dataPatch,
   };
 }
@@ -150,15 +150,17 @@ function resolvedEntry(compiled: CompiledEntry, body: BodyComponent): ResolvedSt
 function bodyComponent(body: CompiledBody): BodyComponent {
   let evaluated: Promise<BodyComponent> | undefined;
   return async function CompiledBodyContent(properties) {
-    evaluated ??= run(body.code, { ...runtime, baseUrl: import.meta.url }).then(
-      (module) => module.default as BodyComponent,
-    );
+    evaluated ??= (async () => {
+      const module = await run(body.code, { ...runtime, baseUrl: import.meta.url });
+      return module.default as BodyComponent;
+    })();
     return createElement(await evaluated, properties);
   };
 }
 
 function assertCompiledContent(content: CompiledContent) {
-  if (content.schemaVersion !== 3) throw new TypeError('Unsupported lume-cms compiled content schema');
+  // The artifact is untrusted JSON; widen so the guard survives the literal type.
+  if ((content.schemaVersion as number) !== 3) throw new TypeError('Unsupported lume-cms compiled content schema');
 }
 
 function assertPluginMatch(compiled: CompiledCollection, plugins: readonly AnyLumePlugin[], collectionName: string) {
@@ -242,7 +244,7 @@ function createCollectionSource<
       if (context.preview?.future) revealed.add('future');
       return entries
         .filter((entry) => entry.hidden().every((reason) => revealed.has(reason)))
-        .sort((a, b) => (
+        .toSorted((a, b) => (
           (a.compiled.locale ?? '').localeCompare(b.compiled.locale ?? '')
           || a.compiled.slug.join('/').localeCompare(b.compiled.slug.join('/'))
         ));
@@ -383,8 +385,8 @@ export function createFumadocsSources<
   assertCompiledContent(content);
   const collections = (config.collections ?? { default: {} }) as ConfigCollections<Config>;
   const collectionRecord = collections as Record<string, CollectionConfig>;
-  const compiledNames = Object.keys(content.collections).sort();
-  const runtimeNames = Object.keys(collections).sort();
+  const compiledNames = Object.keys(content.collections).toSorted();
+  const runtimeNames = Object.keys(collections).toSorted();
   if (compiledNames.join('\0') !== runtimeNames.join('\0')) {
     const missing = compiledNames.filter((name) => !runtimeNames.includes(name));
     const extra = runtimeNames.filter((name) => !compiledNames.includes(name));
@@ -420,8 +422,11 @@ export function createFumadocsSources<
   }
 
   async function getAllPages() {
-    const loaded = await getAllSources();
-    return Object.values(loaded).flatMap((source) => source.getPages());
+    // Route through the concrete factory type: the mapped `getAllSources`
+    // result is a deferred conditional type that collapses to `any` here.
+    const sourceRecord = sources as Record<string, FumadocsCollectionFactory<CompiledCollection, readonly AnyLumePlugin[]>>;
+    const loaded = await Promise.all(runtimeNames.map(async (name) => sourceRecord[name].getSource()));
+    return loaded.flatMap((source) => source.getPages());
   }
 
   return { sources, getAllSources, getAllPages };
@@ -448,19 +453,21 @@ export function createFumadocsSource<
 /** First-class source factory for a compiled artifact containing one collection. */
 export function createFumadocsSource(
   content: CompiledContent,
-  config: LumeConfig = { collections: { default: {} } },
+  config?: LumeConfig,
 ): FumadocsCollectionFactory<CompiledCollection, readonly AnyLumePlugin[], I18nConfig | undefined> {
   assertCompiledContent(content);
   const names = Object.keys(content.collections);
   if (names.length !== 1) {
     throw new TypeError(`createFumadocsSource() requires exactly one compiled collection; found ${names.length}. Use createFumadocsSources().`);
   }
-  const name = names[0];
+  const [name] = names;
   const compiled = content.collections[name];
-  const collections = config.collections ?? { [name]: {} };
+  const collections = (config ?? { collections: { default: {} } }).collections ?? { [name]: {} };
   const configuredNames = Object.keys(collections);
-  if (configuredNames.length !== 1 || !collections[name]) {
+  // The record type hides absent keys, so probe through `undefined` explicitly.
+  const configured = collections[name] as CollectionConfig | undefined;
+  if (configuredNames.length !== 1 || configured === undefined) {
     throw new TypeError(`createFumadocsSource() config must define exactly the compiled collection ${JSON.stringify(name)}`);
   }
-  return createCollectionSource(name, compiled, collections[name], Date.now);
+  return createCollectionSource(name, compiled, configured, Date.now);
 }

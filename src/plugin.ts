@@ -52,6 +52,7 @@ export interface ResolvedEntry<Data extends Record<string, unknown> = Record<str
   /** Set plugin-private generation state; this never changes visibility. */
   set: (key: string, value: unknown) => void;
   /** Read plugin-private generation state. */
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- caller-side inference sugar; the cast is this API's contract
   get: <Value = unknown>(key: string) => Value | undefined;
   /** Merge fields into the final Fumadocs page data. */
   patchData: (patch: Record<string, unknown>) => void;
@@ -113,7 +114,9 @@ export interface TimeGateOptions {
 }
 
 /** Derive runtime visibility and invalidation from one time-bound declaration. */
-export function defineTimeGate(options: TimeGateOptions): RuntimeHooks {
+export function defineTimeGate(
+  options: TimeGateOptions,
+): RuntimeHooks & Required<Pick<RuntimeHooks, 'resolve' | 'deadline' | 'timeDependent'>> {
   return {
     timeDependent: true,
     resolve(entry, { nowMs }, next) {
@@ -148,7 +151,7 @@ export interface LumeBuildPlugin<Frontmatter extends object = object, Data exten
     /** Stable options/version key for invalidating incremental compilation. */
     cacheKey?: string;
     setup?: (context: BuildPluginContext, next: Next<Promise<void>>) => void | Promise<void>;
-    entry?: (context: BuildEntryContext) => unknown | Promise<unknown>;
+    entry?: (context: BuildEntryContext) => unknown;
     collection?: (context: BuildCollectionContext, next: Next<Promise<void>>) => void | Promise<void>;
   };
 }
@@ -163,8 +166,8 @@ export interface LumeRuntimePlugin<Frontmatter extends object = object, Data ext
 export type LumePlugin<Frontmatter extends object = object, Data extends object = object> =
   LumeBuildPlugin<Frontmatter, Data> & LumeRuntimePlugin<Frontmatter, Data>;
 
-export type AnyBuildPlugin = LumeBuildPlugin<any, any>;
-export type AnyRuntimePlugin = LumeRuntimePlugin<any, any>;
+export type AnyBuildPlugin = LumeBuildPlugin;
+export type AnyRuntimePlugin = LumeRuntimePlugin;
 export type AnyLumePlugin = AnyBuildPlugin | AnyRuntimePlugin;
 
 /** Preserve each collection's plugin tuple for runtime page-data inference. */
@@ -215,11 +218,11 @@ export function definePlugin<Frontmatter extends object = object, Data extends o
 }
 
 export function isBuildPlugin(plugin: AnyLumePlugin): plugin is AnyBuildPlugin {
-  return buildPluginBrand in plugin;
+  return Object.hasOwn(plugin, buildPluginBrand);
 }
 
 export function isRuntimePlugin(plugin: AnyLumePlugin): plugin is AnyRuntimePlugin {
-  return runtimePluginBrand in plugin;
+  return Object.hasOwn(plugin, runtimePluginBrand);
 }
 
 export function assertPluginIds(plugins: readonly AnyLumePlugin[]): void {

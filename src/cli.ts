@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { parseCliArgs as parseCliArguments } from './cli-args.js';
+import { parseCliArguments } from './cli-arguments.js';
 import type { CompileDiagnostic } from './types.js';
 
 function reportDiagnostics(diagnostics: CompileDiagnostic[]) {
@@ -12,7 +12,7 @@ function reportDiagnostics(diagnostics: CompileDiagnostic[]) {
 function reportError(error: unknown) {
   const diagnostics = (error as { diagnostics?: unknown } | null)?.diagnostics;
   if (Array.isArray(diagnostics)) reportDiagnostics(diagnostics as CompileDiagnostic[]);
-  console.error(Error.isError(error) ? error.message : error);
+  console.error(error instanceof Error ? error.message : error);
 }
 
 async function main() {
@@ -44,7 +44,9 @@ async function main() {
   console.log(`Compiled ${counts.join(', ')}.`);
 }
 
-main().catch((error: unknown) => {
+try {
+  await main();
+} catch (error) {
   reportError(error);
   process.exitCode = 1;
-});
+}

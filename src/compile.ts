@@ -79,29 +79,29 @@ export class CompileCache {
     this.metas.clear();
   }
 
-  getEntry(path: string, digest: string): CompiledUnit | undefined {
-    const cached = this.entries.get(path);
-    if (cached?.digest !== digest) return;
+  getEntry(sourcePath: string, fileDigest: string): CompiledUnit | undefined {
+    const cached = this.entries.get(sourcePath);
+    if (cached?.digest !== fileDigest) return undefined;
     return structuredClone(cached.value);
   }
 
-  setEntry(path: string, digest: string, value: CompiledUnit) {
-    this.entries.set(path, { digest, value: structuredClone(value) });
+  setEntry(sourcePath: string, fileDigest: string, value: CompiledUnit) {
+    this.entries.set(sourcePath, { digest: fileDigest, value: structuredClone(value) });
   }
 
-  getMeta(path: string, digest: string): CompiledMeta | undefined {
-    const cached = this.metas.get(path);
-    if (cached?.digest !== digest) return;
+  getMeta(sourcePath: string, fileDigest: string): CompiledMeta | undefined {
+    const cached = this.metas.get(sourcePath);
+    if (cached?.digest !== fileDigest) return undefined;
     return structuredClone(cached.value);
   }
 
-  setMeta(path: string, digest: string, value: CompiledMeta) {
-    this.metas.set(path, { digest, value: structuredClone(value) });
+  setMeta(sourcePath: string, fileDigest: string, value: CompiledMeta) {
+    this.metas.set(sourcePath, { digest: fileDigest, value: structuredClone(value) });
   }
 
   prune(entryPaths: Set<string>, metaPaths: Set<string>) {
-    for (const path of this.entries.keys()) if (!entryPaths.has(path)) this.entries.delete(path);
-    for (const path of this.metas.keys()) if (!metaPaths.has(path)) this.metas.delete(path);
+    for (const key of this.entries.keys()) if (!entryPaths.has(key)) this.entries.delete(key);
+    for (const key of this.metas.keys()) if (!metaPaths.has(key)) this.metas.delete(key);
   }
 }
 
@@ -129,16 +129,18 @@ const stringifyProcessedMarkdown = defaultStringifier({
     if (
       (node.type !== 'mdxJsxFlowElement' && node.type !== 'mdxJsxTextElement')
       || node.children.length > 0
-    ) return;
-    const literals = Object.fromEntries(node.attributes.flatMap((attribute) =>
-      attribute.type === 'mdxJsxAttribute' && typeof attribute.value === 'string'
-        ? [[attribute.name, attribute.value]]
-        : []));
+    ) return undefined;
+    const literals: Record<string, string | undefined> = Object.fromEntries(
+      node.attributes.flatMap((attribute) =>
+        attribute.type === 'mdxJsxAttribute' && typeof attribute.value === 'string'
+          ? [[attribute.name, attribute.value]]
+          : []),
+    );
     const label = literals.title ?? literals.label;
-    if (!label) return;
-    const escapedLabel = label.replaceAll(/([\\`*_[\]<>])/g, String.raw`\$1`);
+    if (!label) return undefined;
+    const escapedLabel = label.replaceAll(/(?<special>[\\`*_[\]<>])/gu, String.raw`\$<special>`);
     return literals.href
-      ? `[${escapedLabel}](${literals.href.replaceAll(/[\s()<>]/g, (character) => encodeURIComponent(character))})`
+      ? `[${escapedLabel}](${literals.href.replaceAll(/[\s()<>]/gu, (character) => encodeURIComponent(character))})`
       : escapedLabel;
   },
 });
@@ -148,9 +150,8 @@ interface MarkdownProcessor { data: (key: string) => unknown }
 
 /** Pure-Markdown degradation: drop code/expressions and unwrap JSX while preserving portable text. */
 function remarkProcessedMarkdown(this: MarkdownProcessor) {
-  const processor = this;
   return (tree: MarkdownTree, file: { data: Record<string, unknown> }) => {
-    file.data.processedMarkdown = stringifyProcessedMarkdown.call(processor as never, tree, undefined);
+    file.data.processedMarkdown = stringifyProcessedMarkdown.call(this as never, tree, undefined);
   };
 }
 
@@ -196,7 +197,7 @@ function stableValue(
   }
   if (isFingerprint && typeof value === 'bigint') return { $bigint: value.toString() };
   if (isFingerprint && typeof value === 'symbol') return { $symbol: String(value) };
-  if (!value || typeof value !== 'object') return value;
+  if (value === null || typeof value !== 'object') return value;
 
   if (isFingerprint) {
     const existing = seen.get(value);
@@ -209,21 +210,21 @@ function stableValue(
     return {
       $map: [...value]
         .map(([key, item]) => [stableValue(key, mode, seen), stableValue(item, mode, seen)])
-        .sort(([a], [b]) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
+        .toSorted(([a], [b]) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
     };
   }
   if (isFingerprint && value instanceof Set) {
     return {
       $set: [...value]
         .map((item) => stableValue(item, mode, seen))
-        .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
+        .toSorted((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
     };
   }
   if (Array.isArray(value)) return value.map((item) => stableValue(item, mode, seen));
   return Object.fromEntries(
     Object.entries(value as Record<string, unknown>)
       .filter(([, item]) => mode !== 'artifact' || item !== undefined)
-      .sort(([a], [b]) => a.localeCompare(b))
+      .toSorted(([a], [b]) => a.localeCompare(b))
       .map(([key, item]) => [key, stableValue(item, mode, seen)]),
   );
 }
@@ -288,7 +289,7 @@ export interface ResolvedCollection {
 
 export function resolveCollections(cwd: string, config: LumeConfig): ResolvedCollection[] {
   const configured = normalizedCollections(config);
-  return Object.keys(configured).sort().map((name) => {
+  return Object.keys(configured).toSorted().map((name) => {
     const definition = configured[name];
     const plugins = (definition.plugins ?? []).filter(isBuildPlugin);
     assertPluginIds(plugins);
@@ -326,9 +327,9 @@ async function collectionFiles(
     ]);
     const relativeMetas = discoveredMetaFiles.filter((contentPath) => (
       path.posix.basename(parseI18nPath(contentPath, item.i18n).path) === 'meta.json'
-    )).sort();
+    )).toSorted();
     const metaSet = new Set(relativeMetas);
-    const relativePages = relativePageFiles.filter((sourcePath) => !metaSet.has(sourcePath)).sort();
+    const relativePages = relativePageFiles.filter((sourcePath) => !metaSet.has(sourcePath)).toSorted();
     const toSourcePath = (contentPath: string) => (
       PathUtils.slash(path.relative(cwd, path.resolve(item.root, contentPath)))
     );
@@ -360,8 +361,8 @@ async function parseMeta(
   try {
     value = JSON.parse(raw);
   } catch (error) {
-    const detail = Error.isError(error) ? `: ${error.message}` : '';
-    throw new Error(`${sourcePath}: invalid meta.json${detail}`);
+    const detail = error instanceof Error ? `: ${error.message}` : '';
+    throw new Error(`${sourcePath}: invalid meta.json${detail}`, { cause: error });
   }
   // The meta schema owns shape validation, including rejecting non-objects.
   return validate(schema, value, sourcePath, 'meta.json');
@@ -476,11 +477,14 @@ export async function compileContent(options: CompileOptions = {}): Promise<Comp
   for (const definition of resolvedCollections) {
     const { name, root: contentRoot, baseUrl, i18n, schema, metaSchema, plugins } = definition;
     const setup = collectCompileHooks<BuildPluginContext>(plugins, (plugin) => plugin.build?.setup);
-    await composeOnion(setup, async () => {})(pluginContext);
+    await composeOnion(setup, async () => {
+      // Onion core: plugins own all behavior.
+    })(pluginContext);
     const entries: CompiledEntry[] = [];
     const referenceEntries: ReferenceEntry[] = [];
     const metas: CompiledMeta[] = [];
-    for (const sourcePath of files.get(name)!.metas) {
+    const collectionFileSet = files.get(name) ?? { pages: [], metas: [] };
+    for (const sourcePath of collectionFileSet.metas) {
       const absolutePath = path.resolve(cwd, sourcePath);
       const raw = await readFile(absolutePath, 'utf8');
       const fileDigest = digest(fingerprint, name, sourcePath, raw);
@@ -493,7 +497,7 @@ export async function compileContent(options: CompileOptions = {}): Promise<Comp
       metaPaths.add(sourcePath);
       metas.push(meta);
     }
-    for (const sourcePath of files.get(name)!.pages) {
+    for (const sourcePath of collectionFileSet.pages) {
       const absolutePath = path.resolve(cwd, sourcePath);
       const contentPath = relativeContentPath(contentRoot, absolutePath);
       const raw = await readFile(absolutePath, 'utf8');
@@ -520,7 +524,9 @@ export async function compileContent(options: CompileOptions = {}): Promise<Comp
       plugins,
       (plugin) => plugin.build?.collection,
     );
-    await composeOnion(collection, async () => {})({ ...pluginContext, entries });
+    await composeOnion(collection, async () => {
+      // Onion core: plugins own all behavior.
+    })({ ...pluginContext, entries });
     const diagnostics = await validateReferences(cwd, referenceEntries, baseUrl, i18n);
     allDiagnostics.push(...diagnostics);
     collections[name] = {

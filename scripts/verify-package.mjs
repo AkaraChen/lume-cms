@@ -64,15 +64,15 @@ if (!files.has('dist/schedule.mjs') || !files.has('dist/schedule.d.mts')) {
   throw new Error('Published package is missing its schedule entry');
 }
 const runtimeBundle = readFileSync('dist/index.mjs', 'utf8');
-const configBundle = readFileSync('dist/config.mjs', 'utf8');
 const publishedBundles = readdirSync('dist')
   .filter((file) => file.endsWith('.mjs'))
   .map((file) => readFileSync(path.join('dist', file), 'utf8'));
 if (runtimeBundle.includes('publishAtMs')) {
   throw new Error('The core runtime bundle statically includes schedule implementation details');
 }
-if (!/from ["']zod["']/.test(configBundle)) {
-  throw new Error('The config entry must keep Zod external');
+// The Zod import may live in the config entry itself or a shared chunk it re-exports.
+if (!publishedBundles.some((bundle) => /from ["']zod["']/.test(bundle))) {
+  throw new Error('The published chunks must keep Zod external');
 }
 if (!publishedBundles.some((bundle) => /from ["']zod\/mini["']/.test(bundle))) {
   throw new Error('The published chunks must keep Zod Mini external');

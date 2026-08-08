@@ -61,12 +61,6 @@ export async function watchContent(options: WatchContentOptions = {}): Promise<C
     }));
   }
 
-  function recursiveCoverage(roots: ReadonlySet<string>) {
-    return new Set([...roots].filter((root) => [...roots].every((candidate) => (
-      candidate === root || !containsPath(candidate, root)
-    ))));
-  }
-
   function containsPath(parent: string, child: string) {
     const relative = path.relative(parent, child);
     return relative === '' || (relative !== '..'
@@ -74,7 +68,13 @@ export async function watchContent(options: WatchContentOptions = {}): Promise<C
       && !path.isAbsolute(relative));
   }
 
-  async function updateWatchTargets(collections: readonly ResolvedCollection[], output: string) {
+  function recursiveCoverage(roots: ReadonlySet<string>) {
+    return new Set([...roots].filter((root) => [...roots].every((candidate) => (
+      candidate === root || !containsPath(candidate, root)
+    ))));
+  }
+
+  function updateWatchTargets(collections: readonly ResolvedCollection[], output: string) {
     const nextActiveRoots = externalRoots(collections);
     const nextCoverage = new Set([...watchedCoverage].filter((watchedRoot) => (
       [...nextActiveRoots].some((activeRoot) => (
@@ -83,8 +83,10 @@ export async function watchContent(options: WatchContentOptions = {}): Promise<C
     )));
     activeRoots = nextActiveRoots;
     const removedCoverage = [...watchedCoverage].filter((root) => !nextCoverage.has(root));
-    await Promise.all(removedCoverage.map((root) => watcher.unwatch(root)));
-    for (const root of removedCoverage) inactiveCoverage.add(root);
+    for (const root of removedCoverage) {
+      watcher.unwatch(root);
+      inactiveCoverage.add(root);
+    }
     for (const root of inactiveCoverage) {
       if ([...nextActiveRoots].every((activeRoot) => (
         !(containsPath(root, activeRoot) || containsPath(activeRoot, root))
@@ -104,11 +106,11 @@ export async function watchContent(options: WatchContentOptions = {}): Promise<C
   }
 
   async function build(): Promise<WatchBuildResult | undefined> {
-    if (isClosed) return;
+    if (isClosed) return undefined;
     try {
       const config = await loadLumeConfig(cwd);
       const collections = resolveCollections(cwd, config);
-      await updateWatchTargets(collections, path.resolve(cwd, config.output ?? 'content.generated.json'));
+      updateWatchTargets(collections, path.resolve(cwd, config.output ?? 'content.generated.json'));
       const content = await compileContent({
         cwd,
         config,
@@ -121,11 +123,18 @@ export async function watchContent(options: WatchContentOptions = {}): Promise<C
       return result;
     } catch (error) {
       await options.onError?.(error);
+      return undefined;
     }
   }
 
   async function enqueueBuild(): Promise<WatchBuildResult | undefined> {
-    buildChain = buildChain.then(build, build);
+    const previous = buildChain;
+    // `build` never rejects (it reports through onError), so awaiting the
+    // previous run only serializes builds.
+    buildChain = (async () => {
+      await previous;
+      return build();
+    })();
     return buildChain;
   }
 

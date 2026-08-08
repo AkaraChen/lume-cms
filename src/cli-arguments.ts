@@ -8,7 +8,7 @@ export interface CliOptions {
   strict: boolean;
 }
 
-export function parseCliArgs(argv: string[]): CliOptions {
+export function parseCliArguments(argv: string[]): CliOptions {
   // Help:false keeps this pure (no process.exit on --help).
   const parsed = cli(
     {

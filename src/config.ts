@@ -7,7 +7,6 @@ import type {
   ContentStorageMetaFile,
   ContentStoragePageFile,
   LoaderOptions,
-  MetaData,
   PageData,
 } from 'fumadocs-core/source';
 import type { AnyLumePlugin, InferPluginData } from './plugin.js';

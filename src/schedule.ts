@@ -57,11 +57,11 @@ export function schedule(options: ScheduleOptions = {}): SchedulePlugin {
       ...gate,
       resolve(entry, context, next) {
         entry.patchData({ publishDate: extension(entry.compiled).publishDate });
-        gate.resolve!(entry, context, next);
+        gate.resolve(entry, context, next);
       },
       ...(options.sort === 'date-desc' && {
         list: (_entries: readonly ResolvedEntry[], _context: RuntimeContext, next: Next<ResolvedEntry[]>) => (
-          next().sort((a, b) => (
+          next().toSorted((a, b) => (
             (extension(b.compiled).publishAtMs ?? -Infinity)
             - (extension(a.compiled).publishAtMs ?? -Infinity)
           ))
