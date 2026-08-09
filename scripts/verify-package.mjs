@@ -63,6 +63,9 @@ if (!files.has('dist/cli.mjs')) throw new Error('Published package is missing di
 if (!files.has('dist/schedule.mjs') || !files.has('dist/schedule.d.mts')) {
   throw new Error('Published package is missing its schedule entry');
 }
+if (!files.has('dist/next.mjs') || !files.has('dist/next.d.mts')) {
+  throw new Error('Published package is missing its Next.js plugin entry');
+}
 const runtimeBundle = readFileSync('dist/index.mjs', 'utf8');
 const publishedBundles = readdirSync('dist')
   .filter((file) => file.endsWith('.mjs'))
@@ -96,6 +99,8 @@ execFileSync('pnpm', [
 ], { stdio: 'pipe' });
 const { schedule } = await import('../dist/schedule.mjs');
 if (schedule().id !== 'schedule') throw new Error('The published schedule entry is not importable');
+const { createLume } = await import('../dist/next.mjs');
+if (typeof createLume !== 'function') throw new Error('The published Next.js plugin is not importable');
 const configModule = await import('../dist/config.mjs');
 const {
   defaultMetaSchema,

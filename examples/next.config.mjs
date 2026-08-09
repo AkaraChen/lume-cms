@@ -1,4 +1,8 @@
+import { createLume } from 'lume-cms/next';
+
 /** @type {import('next').NextConfig} */
 const config = { reactStrictMode: true };
 
-export default config;
+const withLume = createLume();
+
+export default withLume(config);

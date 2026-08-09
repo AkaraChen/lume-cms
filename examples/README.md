@@ -28,7 +28,8 @@ In the project, you can see:
 | `app/docs`                | The documentation layout and pages.                    |
 | `app/api/search/route.ts` | The Route Handler for search.                          |
 
-Run `lume-cms build` before Next.js starts to compile Markdown and MDX into `content.generated.json`.
+The `lume-cms/next` plugin compiles Markdown and MDX into
+`content.generated.json` before production builds and watches it during development.
 
 The docs detail route checks Next.js `draftMode()` inside each request and uses
 the isolated `getPreviewSource()` only when draft mode is enabled. Production

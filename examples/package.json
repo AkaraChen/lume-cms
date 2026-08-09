@@ -2,10 +2,8 @@
   "name": "lume-cms-example",
   "private": true,
   "scripts": {
-    "build": "lume-cms build && next build",
-    "dev": "concurrently --kill-others --success first --names content,web \"pnpm dev:content\" \"pnpm dev:web\"",
-    "dev:content": "lume-cms build --watch",
-    "dev:web": "next dev",
+    "build": "next build",
+    "dev": "next dev",
     "start": "next start",
     "test:routes": "node scripts/verify-routes.mjs",
     "types:check": "next typegen && tsc --noEmit"
@@ -26,7 +24,6 @@
     "@types/node": "^26.1.2",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
-    "concurrently": "^9.2.4",
     "postcss": "^8.5.24",
     "tailwindcss": "^4.3.3",
     "typescript": "^6.0.3"

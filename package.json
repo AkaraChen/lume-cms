@@ -20,6 +20,10 @@
       "types": "./dist/config.d.mts",
       "import": "./dist/config.mjs"
     },
+    "./next": {
+      "types": "./dist/next.d.mts",
+      "import": "./dist/next.mjs"
+    },
     "./schedule": {
       "types": "./dist/schedule.d.mts",
       "import": "./dist/schedule.mjs"
