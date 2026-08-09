@@ -144,24 +144,36 @@ The loader exposes the two values as `page.data.content` (original) and `page.da
 
 This intentionally duplicates body text in the JSON artifact. In the three-page example fixture it adds 542 bytes uncompressed and 48 bytes after Brotli (12,639 → 13,181 raw; 2,214 → 2,262 Brotli). Growth is linear and can approach one extra normalized body per page before compression; large-site sharding/lazy-loading thresholds remain KIT-626's benchmark decision rather than being mixed into the export contract.
 
-For local editing, run `lume-cms build --watch`. The first build is clean; later builds reuse an in-memory cache keyed by source path and content plus the resolved content configuration, schema, compiler version, plugin implementation, and plugin `build.cacheKey`. Add, change, rename, and delete events update the same deterministic output without restarting the process. Configuration and local plugin source changes are reloaded and invalidate affected cache entries. A failed rebuild reports the error, keeps the last successful output, and continues watching so the next edit can recover. Custom plugins whose behavior depends on closed-over options should expose a stable `build.cacheKey` containing those options.
+Add the Next.js plugin once and keep the usual `next dev` and `next build`
+scripts. It compiles content before a production build and starts the incremental
+watcher during development, including the initial build:
 
-Keep process orchestration in the consuming app. For example, install `concurrently` as that app's dev dependency and give content compilation and Next.js separate scripts:
+```js
+// next.config.mjs
+import { createLume } from 'lume-cms/next';
 
-```json
-{
-  "scripts": {
-    "dev:content": "lume-cms build --watch",
-    "dev:web": "next dev",
-    "dev": "concurrently --kill-others --success first --names content,web \"pnpm dev:content\" \"pnpm dev:web\""
-  },
-  "devDependencies": {
-    "concurrently": "^9.2.4"
-  }
-}
+const withLume = createLume();
+
+export default withLume({
+  reactStrictMode: true,
+});
 ```
 
-`pnpm dev` then starts both processes and forwards Ctrl-C so both the content watcher and Next.js shut down together. `concurrently` belongs to the consuming app only; it is not a `lume-cms` runtime dependency.
+Pass `{ strict: true }` to `createLume()` to make reference diagnostics fail a
+production build. In development those errors are reported while the watcher
+keeps the last successful output and waits for a fix. The plugin composes with
+both object and async function Next.js configs and does not rely on webpack
+hooks, so the same integration covers Webpack and Turbopack.
+
+The standalone `lume-cms build` and `lume-cms build --watch` commands remain
+available outside Next.js. Incremental builds reuse an in-memory cache keyed by
+source path and content plus the resolved content configuration, schema,
+compiler version, plugin implementation, and plugin `build.cacheKey`. Add,
+change, rename, and delete events update the same deterministic output without
+restarting the process. Configuration and local plugin source changes are
+reloaded and invalidate affected cache entries. Custom plugins whose behavior
+depends on closed-over options should expose a stable `build.cacheKey`
+containing those options.
 
 Every build also validates static content references and emits deterministic JSON diagnostics with a source path, line, column, target, and code. Missing content pages, heading anchors, Markdown images, literal MDX `<img src>` values, and linked local assets are warnings by default, so the output is still written; use `lume-cms build --strict` (with or without `--watch`) to fail the build and preserve the last successful output. Relative page and asset paths resolve from the authoring file; clean URLs with a trailing slash resolve either a direct page or a directory `index` page. Existing extensionless files such as `LICENSE` and `CNAME` are accepted as local resources after page resolution. Absolute page links strip the configured `baseUrl`, while absolute asset paths resolve from `public/`, matching Fumadocs `remarkImage({ useImport: false })` URL semantics. HTTP(S), protocol, code-block, and dynamic JSX-expression targets are not fetched or guessed; literal Markdown reference links and literal `<a href>` values are checked.
 
