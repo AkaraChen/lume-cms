@@ -3,6 +3,7 @@ import { defineConfig } from 'tsdown';
 export default defineConfig({
   entry: {
     index: 'src/index.ts',
+    api: 'src/api.ts',
     config: 'src/config.ts',
     next: 'src/next.ts',
     schedule: 'src/schedule.ts',

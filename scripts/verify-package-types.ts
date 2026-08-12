@@ -1,3 +1,5 @@
+import '@tanstack/react-start';
+import { createFileRoute } from '@tanstack/react-router';
 import { createFumadocsSource, type CompiledContent } from '../dist/index.mjs';
 import {
   defineBuildPlugin,
@@ -6,6 +8,7 @@ import {
   type LumeRuntimePlugin,
 } from '../dist/config.mjs';
 import { schedule } from '../dist/schedule.mjs';
+import { createLumeApi, toNextHandler, toStartHandler } from '../dist/api.mjs';
 import type { Root } from 'fumadocs-core/page-tree';
 // @ts-expect-error composeOnion is an internal implementation detail.
 import { composeOnion } from '../dist/config.mjs';
@@ -20,6 +23,15 @@ const nonI18nContent = {
   schemaVersion: 3,
   collections: { default: { baseUrl: '/', plugins: [], entries: [], metas: [] } },
 } satisfies CompiledContent;
+
+const factory = createFumadocsSource(nonI18nContent);
+const api = createLumeApi({ sources: { default: factory } });
+toNextHandler(api).GET satisfies (request: Request) => Promise<Response>;
+toStartHandler(api).GET satisfies (context: { request: Request }) => Promise<Response>;
+factory.getMeta() satisfies Promise<{ baseUrl: string; until: number }>;
+factory.getSnapshot() satisfies Promise<{ source: unknown; meta: { baseUrl: string; until: number } }>;
+const tanstackRoute = createFileRoute()({ server: { handlers: toStartHandler(api) } });
+void tanstackRoute;
 
 const i18nContent = {
   schemaVersion: 3,

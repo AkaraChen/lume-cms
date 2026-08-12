@@ -95,6 +95,25 @@ export interface FumadocsCollectionFactory<
 > {
   getSource: () => Promise<LumeLoaderOutput<Collection, Plugins, RuntimeI18n>>;
   getPreviewSource: (options?: PreviewOptions) => Promise<LumeLoaderOutput<Collection, Plugins, RuntimeI18n>>;
+  getMeta: () => Promise<CollectionRuntimeMeta>;
+  /** Atomically obtain one public visibility generation and its cache deadline. */
+  getSnapshot: () => Promise<CollectionSourceSnapshot<Collection, Plugins, RuntimeI18n>>;
+}
+
+export interface CollectionRuntimeMeta {
+  baseUrl: string;
+  i18n?: CompiledI18nConfig;
+  /** Epoch milliseconds when the current public generation becomes stale. */
+  until: number;
+}
+
+export interface CollectionSourceSnapshot<
+  Collection extends CompiledCollection,
+  Plugins extends readonly AnyLumePlugin[] = [],
+  RuntimeI18n extends I18nConfig | undefined = undefined,
+> {
+  source: LumeLoaderOutput<Collection, Plugins, RuntimeI18n>;
+  meta: CollectionRuntimeMeta;
 }
 
 type InferSingleCollection<Content extends CompiledContent> =
@@ -341,7 +360,7 @@ function createCollectionSource<
     };
   }
 
-  async function getSource() {
+  function getGeneration() {
     const at = currentTime();
     let generation = generations
       .filter((candidate) => candidate.from <= at && at < candidate.until)
@@ -359,7 +378,29 @@ function createCollectionSource<
         generations.splice(generations.indexOf(oldest), 1);
       }
     }
-    return generation.value;
+    return generation;
+  }
+
+  async function getSource() {
+    return getGeneration().value;
+  }
+
+  function metaFor(generation: Generation): CollectionRuntimeMeta {
+    return {
+      baseUrl,
+      ...(compiledI18n && { i18n: compiledI18n }),
+      until: generation.until,
+    };
+  }
+
+  // eslint-disable-next-line @typescript-eslint/require-await -- Keep an async factory contract alongside getSource.
+  async function getMeta(): Promise<CollectionRuntimeMeta> {
+    return metaFor(getGeneration());
+  }
+
+  async function getSnapshot(): Promise<CollectionSourceSnapshot<Collection, Plugins, RuntimeI18n>> {
+    const generation = getGeneration();
+    return { source: await generation.value, meta: metaFor(generation) } as unknown as CollectionSourceSnapshot<Collection, Plugins, RuntimeI18n>;
   }
 
   async function getPreviewSource(previewOptions: PreviewOptions = {}) {
@@ -371,7 +412,7 @@ function createCollectionSource<
     return createLoader(resolveAt({ nowMs: currentTime(), preview }).listed).get();
   }
 
-  return { getSource, getPreviewSource } as unknown as FumadocsCollectionFactory<Collection, Plugins, RuntimeI18n>;
+  return { getSource, getPreviewSource, getMeta, getSnapshot } as unknown as FumadocsCollectionFactory<Collection, Plugins, RuntimeI18n>;
 }
 
 type ConfigCollections<Config extends LumeConfig> = Config extends {

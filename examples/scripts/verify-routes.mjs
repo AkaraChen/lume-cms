@@ -42,6 +42,10 @@ try {
     '/docs',
     '/blog',
     '/api/search?query=UNPUBLISHED_BLOG_TITLE_KIT_618',
+    '/api/content/collections',
+    '/api/content/pages',
+    '/api/content/collections/docs/tree',
+    '/api/content/collections/docs/meta',
     '/llms.txt',
     '/llms-full.txt',
     '/rss.xml',
@@ -57,13 +61,17 @@ try {
     ['/llms.mdx/blog/scheduled/content.md'],
     ['/blog/scheduled', { headers: { Accept: 'text/markdown' } }],
     ['/og/blog/scheduled/image.png'],
+    ['/api/content/collections/blog/pages/scheduled'],
   ];
   for (const [path, init] of hiddenRoutes) {
     const result = await request(path, init);
     if (result.status < 400) throw new Error(`${path} unexpectedly returned ${result.status}`);
   }
 
-  console.log('Verified seven Fumadocs read paths plus RSS and sitemap; no unpublished marker leaked.');
+  const mutation = await request('/api/content/pages', { method: 'POST' });
+  if (mutation.status !== 405) throw new Error(`/api/content/pages POST returned ${mutation.status}`);
+
+  console.log('Verified Fumadocs, REST API, RSS, and sitemap read paths; no unpublished marker leaked.');
 } finally {
   server.kill('SIGTERM');
   await Promise.race([

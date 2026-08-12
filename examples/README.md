@@ -35,6 +35,31 @@ The docs detail route checks Next.js `draftMode()` inside each request and uses
 the isolated `getPreviewSource()` only when draft mode is enabled. Production
 lists, search, RSS, sitemap, OG, and text exports continue to use `getSource()`.
 
+## Content API
+
+`lib/api.ts` mounts the existing `docs` and `blog` factories as one read-only
+Hono API. The Next.js catch-all handler lives at
+`app/api/content/[[...route]]/route.ts` and stays request-time dynamic. The
+TanStack Start route in `tanstack/src/routes/api/content.$.ts` uses the
+`createFileRoute(..., { server: { handlers } })` API from the exact locked
+`@tanstack/react-start` version.
+
+| API route | Description |
+| --- | --- |
+| `/api/content/collections` | Collection names, base URLs, and visible page counts |
+| `/api/content/collections/:name/pages` | A collection's visible pages |
+| `/api/content/collections/:name/pages/*` | One visible page by slug |
+| `/api/content/collections/:name/tree` | Its visibility-safe Fumadocs tree |
+| `/api/content/collections/:name/meta` | Meta-file data reachable from that tree |
+| `/api/content/pages` | Visible pages across collections |
+
+Page JSON deliberately omits Fumadocs' React `body` component. Full responses
+instead contain the original `content`, pure `processedMarkdown`, `toc`, and
+`structuredData`. Public responses are cached only until the nearest runtime
+visibility deadline (and at most one hour), so scheduled pages become visible
+without a new Next.js deployment. Preview responses are always private and
+`no-store`.
+
 ## Learn More
 
 To learn more about Next.js and Fumadocs, take a look at the following
