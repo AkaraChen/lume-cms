@@ -46,6 +46,7 @@ try {
     '/api/content/pages',
     '/api/content/collections/docs/tree',
     '/api/content/collections/docs/meta',
+    '/api/content/collections/docs/pages/_index',
     '/llms.txt',
     '/llms-full.txt',
     '/rss.xml',

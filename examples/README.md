@@ -48,7 +48,7 @@ TanStack Start route in `tanstack/src/routes/api/content.$.ts` uses the
 | --- | --- |
 | `/api/content/collections` | Collection names, base URLs, and visible page counts |
 | `/api/content/collections/:name/pages` | A collection's visible pages |
-| `/api/content/collections/:name/pages/*` | One visible page by slug |
+| `/api/content/collections/:name/pages/*` | One visible page by slug (`_index` for the root page) |
 | `/api/content/collections/:name/tree` | Its visibility-safe Fumadocs tree |
 | `/api/content/collections/:name/meta` | Meta-file data reachable from that tree |
 | `/api/content/pages` | Visible pages across collections |

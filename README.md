@@ -329,14 +329,17 @@ export const contentApi = createLumeApi({
 The API exposes `GET /collections`, per-collection `pages`, page detail,
 `tree`, and `meta` routes, plus a cross-collection `GET /pages` endpoint.
 Lists accept `locale`, `tag`, `limit`, `cursor`, and `fields=summary|full`.
+The reserved detail slug `_index` addresses a collection's empty-slug root
+page, for example `/collections/docs/pages/_index`.
 It never serializes the React `body`; full page JSON contains `content`,
 `processedMarkdown`, `toc`, and `structuredData` instead.
 
-Every public route calls the collection factory's `getSource()` and uses that
-same runtime generation's `until` deadline for `Cache-Control`. The response
+Every public route calls the collection factory's atomic `getSnapshot()` and
+uses that same runtime generation's `until` deadline for `Cache-Control`. The response
 therefore cannot remain publicly cached beyond the next scheduled visibility
 change. Responses also carry stable ETags. Authorized preview queries use only
-`getPreviewSource()` and are always `private, no-store`.
+`getPreviewSource()` and are always `private, no-store`. Enabling preview
+without an `authorize` callback fails closed with `403 preview_forbidden`.
 
 `toNextHandler(contentApi)` returns `GET` and `HEAD` route handlers for a
 request-time dynamic Next.js catch-all route. `toStartHandler(contentApi)`

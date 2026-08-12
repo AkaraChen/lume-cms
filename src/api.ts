@@ -193,7 +193,7 @@ export function createLumeApi(options: LumeApiOptions): Hono {
 
   async function load(context: Context, requestedNames: readonly string[]) {
     const request = previewRequest(new URL(context.req.url), options.preview?.enabled === true);
-    if (request.active && options.preview?.authorize && !await options.preview.authorize(context)) {
+    if (request.active && (!options.preview?.authorize || !await options.preview.authorize(context))) {
       return { denied: true as const, request, collections: [] };
     }
     const collections = await Promise.all(requestedNames.map(async (name): Promise<LoadedCollection> => {
@@ -286,12 +286,13 @@ export function createLumeApi(options: LumeApiOptions): Hono {
     return response(context, payload, loaded.collections, loaded.request.active, cache);
   });
 
-  app.get('/collections/:collection/pages/:slug{.+}', async (context) => {
+  app.get('/collections/:collection/pages/:slug{.*}', async (context) => {
     const name = context.req.param('collection');
     if (!names.includes(name)) return error(context, 404, 'collection_not_found', `Collection ${JSON.stringify(name)} was not found`);
     const loaded = await load(context, [name]);
     if (loaded.denied) return error(context, 403, 'preview_forbidden', 'Preview access is forbidden');
-    const slug = context.req.param('slug').split('/').filter(Boolean);
+    const slugParameter = context.req.param('slug');
+    const slug = slugParameter === '_index' ? [] : slugParameter.split('/').filter(Boolean);
     const page = loaded.collections[0].source.getPage(slug, context.req.query('locale'));
     if (!page) return error(context, 404, 'page_not_found', 'Page was not found');
     return response(

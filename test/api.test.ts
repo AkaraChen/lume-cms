@@ -117,6 +117,24 @@ describe('createLumeApi', () => {
     expect(await second.text()).toBe('');
   });
 
+  it('serves the empty-slug root page through the reserved _index detail path', async () => {
+    const result = createFumadocsSources({
+      schemaVersion: 3,
+      collections: { docs: {
+        baseUrl: '/docs',
+        plugins: [],
+        entries: [{ ...entry('root'), slug: [], path: 'index.mdx' }],
+        metas: [],
+      } },
+    }, { collections: { docs: collection({}) } });
+    const api = createLumeApi({ sources: result.sources });
+
+    const canonical = await api.request('/collections/docs/pages/_index');
+    expect(canonical.status).toBe(200);
+    expect(await canonical.json()).toMatchObject({ url: '/docs', slugs: [], content: 'root source' });
+    expect((await api.request('/collections/docs/pages/')).status).toBe(200);
+  });
+
   it('guards previews and never gives them public cache headers', async () => {
     const result = fixtures();
     const disabled = createLumeApi({ sources: result.sources, preview: { enabled: false } });
@@ -127,6 +145,12 @@ describe('createLumeApi', () => {
       preview: { enabled: true, authorize: () => false },
     });
     expect((await denied.request('/collections/blog/pages?preview=draft')).status).toBe(403);
+
+    const missingAuthorization = createLumeApi({
+      sources: result.sources,
+      preview: { enabled: true },
+    });
+    expect((await missingAuthorization.request('/collections/blog/pages?preview=draft')).status).toBe(403);
 
     const allowed = createLumeApi({
       sources: result.sources,
