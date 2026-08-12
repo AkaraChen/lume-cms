@@ -49,4 +49,22 @@ describe('example request-time publishing contract', () => {
     expect(previewConsumers[0]?.source).toMatch(/\(await draftMode\(\)\)\.isEnabled/);
     expect(previewConsumers[0]?.source).toMatch(/preview\s*\? await getPreviewSource/);
   });
+
+  it('mounts the shared Hono API with the locked framework route contracts', async () => {
+    const nextRoute = await readFile('examples/app/api/content/[[...route]]/route.ts', 'utf8');
+    expect(nextRoute).toContain("export const dynamic = 'force-dynamic'");
+    expect(nextRoute).toContain('toNextHandler(contentApi)');
+    expect(nextRoute).not.toMatch(/generateStaticParams|dynamicParams/);
+
+    const startRoute = await readFile('examples/tanstack/src/routes/api/content.$.ts', 'utf8');
+    expect(startRoute).toContain("createFileRoute('/api/content/$')");
+    expect(startRoute).toContain('server: { handlers }');
+    expect(startRoute).not.toContain('createServerFileRoute');
+
+    const manifest = JSON.parse(await readFile('examples/package.json', 'utf8')) as {
+      devDependencies: Record<string, string>;
+    };
+    expect(manifest.devDependencies['@tanstack/react-start']).toBe('1.168.42');
+    expect(manifest.devDependencies['@tanstack/react-router']).toBe('1.170.25');
+  });
 });

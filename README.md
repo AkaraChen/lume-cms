@@ -307,6 +307,46 @@ validUntil = next unpublished publishDate, or Infinity when none remain
 
 Each collection caches bounded, immutable loader generations over `[observedAt, validUntil)` intervals. Concurrent reads in one interval coalesce; after the system clock crosses a deadline, the next call selects or creates the matching generation. A docs deadline does not affect blog and vice versa. A returned loader is immutable, so all reads from that loader—navigation, page, metadata, OG, RSS, and search—share one visibility snapshot.
 
+## Read-only content API
+
+Install Hono when exposing content over HTTP; it is an optional peer so projects
+that only use the Fumadocs source do not ship it:
+
+```sh
+pnpm add hono
+```
+
+```ts
+import { createLumeApi } from 'lume-cms/api';
+import { sources } from './source';
+
+export const contentApi = createLumeApi({
+  sources,
+  basePath: '/api/content',
+});
+```
+
+The API exposes `GET /collections`, per-collection `pages`, page detail,
+`tree`, and `meta` routes, plus a cross-collection `GET /pages` endpoint.
+Lists accept `locale`, `tag`, `limit`, `cursor`, and `fields=summary|full`.
+The reserved detail slug `_index` addresses a collection's empty-slug root
+page, for example `/collections/docs/pages/_index`.
+It never serializes the React `body`; full page JSON contains `content`,
+`processedMarkdown`, `toc`, and `structuredData` instead.
+
+Every public route calls the collection factory's atomic `getSnapshot()` and
+uses that same runtime generation's `until` deadline for `Cache-Control`. The response
+therefore cannot remain publicly cached beyond the next scheduled visibility
+change. Responses also carry stable ETags. Authorized preview queries use only
+`getPreviewSource()` and are always `private, no-store`. Enabling preview
+without an `authorize` callback fails closed with `403 preview_forbidden`.
+
+`toNextHandler(contentApi)` returns `GET` and `HEAD` route handlers for a
+request-time dynamic Next.js catch-all route. `toStartHandler(contentApi)`
+returns the equivalent `{ request }` handlers for TanStack Start's locked
+`createFileRoute(..., { server: { handlers } })` API. The runnable source
+layouts are in `examples/app/api/content` and `examples/tanstack`.
+
 ## Dynamic search
 
 For one collection, pass the `getSource` function itself to Fumadocs search. `createFromSource()` keys its index by the returned loader instance, so when lume-cms invalidates that instance at the next visibility deadline, the following search request rebuilds from the new filtered page set without recompiling content or redeploying Next.js. `localeMap` remains supported on this path for an explicit tokenizer per locale, but Fumadocs 16 marks it deprecated because the default `multilingual` tokenizer needs no mapping; omit it unless a language-specific tokenizer is intentional.

@@ -55,6 +55,9 @@ if (manifest.dependencies?.valibot !== undefined) {
 if (manifest.dependencies?.c12 === undefined) {
   throw new Error('c12 must be published as a regular dependency');
 }
+if (manifest.peerDependencies?.hono === undefined || manifest.peerDependenciesMeta?.hono?.optional !== true) {
+  throw new Error('Hono must be published as an optional peer dependency');
+}
 
 const packed = JSON.parse(execFileSync('npm', ['pack', '--dry-run', '--json'], { encoding: 'utf8' }));
 const files = new Set(packed[0]?.files?.map((file) => file.path));
@@ -65,6 +68,9 @@ if (!files.has('dist/schedule.mjs') || !files.has('dist/schedule.d.mts')) {
 }
 if (!files.has('dist/next.mjs') || !files.has('dist/next.d.mts')) {
   throw new Error('Published package is missing its Next.js plugin entry');
+}
+if (!files.has('dist/api.mjs') || !files.has('dist/api.d.mts')) {
+  throw new Error('Published package is missing its Hono API entry');
 }
 const runtimeBundle = readFileSync('dist/index.mjs', 'utf8');
 const publishedBundles = readdirSync('dist')
@@ -101,6 +107,10 @@ const { schedule } = await import('../dist/schedule.mjs');
 if (schedule().id !== 'schedule') throw new Error('The published schedule entry is not importable');
 const { createLume } = await import('../dist/next.mjs');
 if (typeof createLume !== 'function') throw new Error('The published Next.js plugin is not importable');
+const { createLumeApi, toNextHandler, toStartHandler } = await import('../dist/api.mjs');
+if ([createLumeApi, toNextHandler, toStartHandler].some((value) => typeof value !== 'function')) {
+  throw new Error('The published Hono API entry is not importable');
+}
 const configModule = await import('../dist/config.mjs');
 const {
   defaultMetaSchema,
